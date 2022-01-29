@@ -23,12 +23,10 @@ or `bfloat16` half-precision.
 
 ## Installation (Linux)
 
-Python dependencies available through `pip` are provided in `requirements.txt`. 
-OpenFold depends on `openmm==7.5.1` and `pdbfixer`, which are only available 
-via `conda`. For producing sequence alignments, you'll also need
-`kalign`, the [HH-suite](https://github.com/soedinglab/hh-suite), and one of 
-{`jackhmmer`, [MMseqs2](https://github.com/soedinglab/mmseqs2) (nightly build)} installed on
-on your system. Finally, some download scripts require `aria2c`.
+All Python dependencies are specified in `environment.yml`. For producing sequence 
+alignments, you'll also need `kalign`, the [HH-suite](https://github.com/soedinglab/hh-suite), 
+and one of {`jackhmmer`, [MMseqs2](https://github.com/soedinglab/mmseqs2) (nightly build)} 
+installed on on your system. Finally, some download scripts require `aria2c`.
 
 For convenience, we provide a script that installs Miniconda locally, creates a 
 `conda` virtual environment, installs all Python dependencies, and downloads
@@ -61,7 +59,7 @@ To install the HH-suite to `/usr/bin`, run
 To download DeepMind's pretrained parameters and common ground truth data, run:
 
 ```bash
-scripts/download_data.sh data/
+bash scripts/download_data.sh data/
 ```
 
 You have two choices for downloading protein databases, depending on whether 
@@ -70,14 +68,14 @@ you want to use DeepMind's MSA generation pipeline (w/ HMMR & HHblits) or
 MMseqs2 instead. For the former, run:
 
 ```bash
-scripts/download_alphafold_dbs.sh data/
+bash scripts/download_alphafold_dbs.sh data/
 ```
 
 For the latter, run:
 
 ```bash
-scripts/download_mmseqs_databases.sh data/    # downloads .tar files
-scripts/prep_mmseqs_databases.sh data/        # unpacks and preps the databases
+bash scripts/download_mmseqs_dbs.sh data/    # downloads .tar files
+bash scripts/prep_mmseqs_dbs.sh data/        # unpacks and preps the databases
 ```
 
 Make sure to run the latter command on the machine that will be used for MSA
@@ -124,6 +122,10 @@ where `data` is the same directory as in the previous step. If `jackhmmer`,
 `/usr/bin`, their `binary_path` command-line arguments can be dropped.
 If you've already computed alignments for the query, you have the option to 
 circumvent the expensive alignment computation here.
+
+Note that chunking (as defined in section 1.11.8 of the AlphaFold 2 supplement)
+is enabled by default in inference mode. To disable it, set `globals.chunk_size`
+to `None` in the config.
 
 ### Training
 
@@ -206,10 +208,6 @@ written with [PyTorch Lightning](https://github.com/PyTorchLightning/pytorch-lig
 and supports the full range of training options that entails, including 
 multi-node distributed training. For more information, consult PyTorch 
 Lightning documentation and the `--help` flag of the training script.
-
-Hardware permitting, you can train with `bfloat16` half-precision by passing
-`bf16` as the `--precision` option. If you're using DeepSpeed, make sure to
-enable `bfloat16` in the DeepSpeed config as well.
 
 Note that the data directory can also contain PDB files previously output by
 the model. These are treated as members of the self-distillation set and are
