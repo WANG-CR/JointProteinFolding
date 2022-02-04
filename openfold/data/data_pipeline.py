@@ -423,7 +423,7 @@ class DataPipeline:
         self,
         alignment_dir: str,
     ) -> Mapping[str, Any]:
-        msa_data = {}
+        msa_data = {}        
         for f in os.listdir(alignment_dir):
             path = os.path.join(alignment_dir, f)
             ext = os.path.splitext(f)[-1]
