@@ -16,4 +16,4 @@ python run_pretrained_openfold.py \
     --model_device cuda:0 \
     --param_path $SCRATCH/biofold/pretrained_weights/alphafold2_params/params_model_1.npz \
     --no_recycling_iters 3 \
-    --relax true \
+    --relax false \
