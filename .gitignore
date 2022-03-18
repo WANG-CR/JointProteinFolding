@@ -138,4 +138,5 @@ lib/conda/
 openfold/resources/
 tests/test_data/alphafold/
 tests/test_data/sample_feats.pickle
+tests/test_data/sample_feats.pickle.gz
 lightning_logs/
