@@ -178,7 +178,7 @@ where `input.fasta` is a FASTA file containing one or more query sequences. To
 generate an input FASTA from a directory of mmCIF and/or ProteinNet .core 
 files, we provide `scripts/data_dir_to_fasta.py`.
 
-Next, generate a cache of certain datapoints in the mmCIF files:
+Next, generate a cache of certain datapoints in the template mmCIF files:
 
 ```bash
 python3 scripts/generate_mmcif_cache.py \
@@ -187,8 +187,23 @@ python3 scripts/generate_mmcif_cache.py \
     --no_workers 16
 ```
 
-This cache is used to minimize the number of mmCIF parses performed during 
-training-time data preprocessing. Finally, call the training script:
+This cache is used to pre-filter templates. 
+
+Next, generate a separate chain-level cache with data used for training-time 
+data filtering:
+
+```bash
+python3 scripts/generate_chain_data_cache.py \
+    mmcif_dir/ \
+    chain_data_cache.json \
+    --cluster_file clusters-by-entity-40.txt \
+    --no_workers 16
+```
+
+where the `cluster_file` argument is a file of chain clusters, one cluster
+per line (e.g. [PDB40](https://cdn.rcsb.org/resources/sequence/clusters/clusters-by-entity-40.txt)).
+
+Finally, call the training script:
 
 ```bash
 python3 train_openfold.py mmcif_dir/ alignment_dir/ template_mmcif_dir/ \
@@ -198,12 +213,14 @@ python3 train_openfold.py mmcif_dir/ alignment_dir/ template_mmcif_dir/ \
     --gpus 8 --replace_sampler_ddp=True \
     --seed 42 \ # in multi-gpu settings, the seed must be specified
     --deepspeed_config_path deepspeed_config.json \
-    --resume_from_ckpt ckpt_dir/
+    --checkpoint_every_epoch \
+    --resume_from_ckpt ckpt_dir/ \
+    --train_chain_data_cache_path chain_data_cache.json
 ```
 
-where `--template_release_dates_cache_path` is a path to the `.json` file
-generated in the previous step. A suitable DeepSpeed configuration file can be 
-generated with `scripts/build_deepspeed_config.py`. The training script is 
+where `--template_release_dates_cache_path` is a path to the mmCIF cache. 
+A suitable DeepSpeed configuration file can be generated with 
+`scripts/build_deepspeed_config.py`. The training script is 
 written with [PyTorch Lightning](https://github.com/PyTorchLightning/pytorch-lightning) 
 and supports the full range of training options that entails, including 
 multi-node distributed training. For more information, consult PyTorch 
@@ -289,7 +306,7 @@ While AlphaFold's and, by extension, OpenFold's source code is licensed under
 the permissive Apache Licence, Version 2.0, DeepMind's pretrained parameters 
 fall under the CC BY 4.0 license, a copy of which is downloaded to 
 `openfold/resources/params` by the installation script. Note that the latter
-replaced the original, more restrictive CC BY-NC 4.0 license as of January 2022.
+replaces the original, more restrictive CC BY-NC 4.0 license as of January 2022.
 
 ## Contributing
 
