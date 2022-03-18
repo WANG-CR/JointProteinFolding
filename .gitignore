@@ -130,3 +130,12 @@ dmypy.json
 
 # User defined
 .DS_Store
+.vscode/
+.idea
+
+# these will be processed by the install script
+lib/conda/
+openfold/resources/
+tests/test_data/alphafold/
+tests/test_data/sample_feats.pickle
+lightning_logs/
