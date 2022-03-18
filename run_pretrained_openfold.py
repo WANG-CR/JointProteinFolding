@@ -16,6 +16,7 @@
 import argparse
 from datetime import date
 import logging
+logging.basicConfig(level=logging.INFO)
 import numpy as np
 import os
 
@@ -30,7 +31,7 @@ from openfold.data import templates, feature_pipeline, data_pipeline
 from openfold.model.model import AlphaFold
 from openfold.model.torchscript import script_preset_
 from openfold.np import residue_constants, protein
-import openfold.np.relax.relax as relax
+# import openfold.np.relax.relax as relax
 from openfold.utils.import_weights import (
     import_jax_weights_,
 )
@@ -48,15 +49,17 @@ def main(args):
     import_jax_weights_(model, args.param_path, version=args.model_name)
     #script_preset_(model)
     model = model.to(args.model_device)
- 
-    template_featurizer = templates.TemplateHitFeaturizer(
-        mmcif_dir=args.template_mmcif_dir,
-        max_template_date=args.max_template_date,
-        max_hits=config.data.predict.max_templates,
-        kalign_binary_path=args.kalign_binary_path,
-        release_dates_path=args.release_dates_path,
-        obsolete_pdbs_path=args.obsolete_pdbs_path
-    )
+
+    template_featurizer = None
+    if args.template_mmcif_dir is not None:
+        template_featurizer = templates.TemplateHitFeaturizer(
+            mmcif_dir=args.template_mmcif_dir,
+            max_template_date=args.max_template_date,
+            max_hits=config.data.predict.max_templates,
+            kalign_binary_path=args.kalign_binary_path,
+            release_dates_path=args.release_dates_path,
+            obsolete_pdbs_path=args.obsolete_pdbs_path
+        )
 
     use_small_bfd=(args.bfd_database_path is None)
 
@@ -88,8 +91,23 @@ def main(args):
         with open(fasta_path, "w") as fp:
             fp.write(f">{tag}\n{seq}")
 
+        # A work around for antibody: find potential chain_index
+        if seq[0] == "X":
+            raise ValueError(f"seq should not begin with residue type X, found {seq}...")
+        maybe_chain_index = []
+        chain_count = 0
+        for i, res in enumerate(seq):
+            if res != "X": 
+                maybe_chain_index.append(chain_count)
+            else:
+                maybe_chain_index.append(61)
+                if seq[i-1] != "X":
+                    chain_count += 1
+        maybe_chain_index = np.array(maybe_chain_index)
+        
         logging.info("Generating features...") 
         local_alignment_dir = os.path.join(alignment_dir, tag)
+        
         if(args.use_precomputed_alignments is None):
             if not os.path.exists(local_alignment_dir):
                 os.makedirs(local_alignment_dir)
@@ -109,14 +127,20 @@ def main(args):
             alignment_runner.run(
                 fasta_path, local_alignment_dir
             )
-    
+            
+        else: # a workaround for prediction without MSAs
+            if not os.path.exists(local_alignment_dir):
+                local_alignment_dir = alignment_dir
+                logging.info("MSAs not found. Performing prediction without MSAs...")
+                
         feature_dict = data_processor.process_fasta(
             fasta_path=fasta_path, alignment_dir=local_alignment_dir
         )
 
         # Remove temporary FASTA file
         os.remove(fasta_path)
-    
+
+        feature_dict["no_recycling_iters"] = args.no_recycling_iters
         processed_feature_dict = feature_processor.process_features(
             feature_dict, mode='predict',
         )
@@ -147,37 +171,55 @@ def main(args):
         unrelaxed_protein = protein.from_prediction(
             features=batch,
             result=out,
-            b_factors=plddt_b_factors
+            b_factors=plddt_b_factors,
+            chain_index=maybe_chain_index
         )
-
+        
         # Save the unrelaxed PDB.
         unrelaxed_output_path = os.path.join(
-            args.output_dir, f'{tag}_{args.model_name}_unrelaxed.pdb'
+            args.output_dir, f'{tag}_{args.model_name}_rec{args.no_recycling_iters}_unrelaxed.pdb'
         )
         with open(unrelaxed_output_path, 'w') as f:
-            f.write(protein.to_pdb(unrelaxed_protein))
+            f.write(protein.to_pdb(unrelaxed_protein))        
 
-        amber_relaxer = relax.AmberRelaxation(
-            use_gpu=(args.model_device != "cpu"),
-            **config.relax,
-        )
-        
-        # Relax the prediction.
-        t = time.perf_counter()
-        visible_devices = os.getenv("CUDA_VISIBLE_DEVICES")
-        if("cuda" in args.model_device):
-            device_no = args.model_device.split(":")[-1]
-            os.environ["CUDA_VISIBLE_DEVICES"] = device_no
-        relaxed_pdb_str, _, _ = amber_relaxer.process(prot=unrelaxed_protein)
-        os.environ["CUDA_VISIBLE_DEVICES"] = visible_devices
-        logging.info(f"Relaxation time: {time.perf_counter() - t}")
-        
-        # Save the relaxed PDB.
-        relaxed_output_path = os.path.join(
-            args.output_dir, f'{tag}_{args.model_name}_relaxed.pdb'
-        )
-        with open(relaxed_output_path, 'w') as f:
-            f.write(relaxed_pdb_str)
+        if args.relax:
+            if "relax" not in sys.modules:
+                import openfold.np.relax.relax as relax
+
+            logging.info("start relaxation")
+            amber_relaxer = relax.AmberRelaxation(
+                use_gpu=(args.model_device != "cpu"),
+                **config.relax,
+            )
+            try:
+                # Relax the prediction.
+                t = time.perf_counter()
+                visible_devices = os.getenv("CUDA_VISIBLE_DEVICES")
+                if("cuda" in args.model_device):
+                    device_no = args.model_device.split(":")[-1]
+                    os.environ["CUDA_VISIBLE_DEVICES"] = device_no
+                relaxed_pdb_str, _, _ = amber_relaxer.process(prot=unrelaxed_protein)
+                os.environ["CUDA_VISIBLE_DEVICES"] = visible_devices
+                logging.info(f"Relaxation time: {time.perf_counter() - t}")
+                
+                # Save the relaxed PDB.
+                relaxed_output_path = os.path.join(
+                    args.output_dir, f'{tag}_{args.model_name}_rec{args.no_recycling_iters}_relaxed.pdb'
+                )
+                with open(relaxed_output_path, 'w') as f:
+                    f.write(relaxed_pdb_str)
+            except:
+                logging.warning("relaxation failed...")
+
+
+def bool_type(bool_str: str):
+    bool_str_lower = bool_str.lower()
+    if bool_str_lower in ('false', 'f', 'no', 'n', '0'):
+        return False
+    elif bool_str_lower in ('true', 't', 'yes', 'y', '1'):
+        return True
+    else:
+        raise ValueError(f'Cannot interpret {bool_str} as bool')
 
 
 if __name__ == "__main__":
@@ -186,12 +228,22 @@ if __name__ == "__main__":
         "fasta_path", type=str,
     )
     parser.add_argument(
-        "template_mmcif_dir", type=str,
+        "--template_mmcif_dir", type=str, default=None,
+        help="""Path to template mmcif directory. If not provided, template_featurizer
+                will be None and template features will be initialized as empty vectors."""
     )
     parser.add_argument(
         "--use_precomputed_alignments", type=str, default=None,
         help="""Path to alignment directory. If provided, alignment computation 
                 is skipped and database path arguments are ignored."""
+    )
+    parser.add_argument(
+        "--relax", type=bool_type, default=True,
+        help="""Whether to perform the relaxation"""
+    )
+    parser.add_argument(
+        "--no_recycling_iters", type=int, default=3,
+        help="""number of recycling iterations"""
     )
     parser.add_argument(
         "--output_dir", type=str, default=os.getcwd(),
