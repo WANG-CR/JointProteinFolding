@@ -15,13 +15,62 @@ python scripts_database/create_database.py \
 
 # 2. split sabdab into train/valid set according to release date,
 #    and generate merged fasta files for further batch inference, and msa generation
+DATABASE_VERSION=20220319_99_True_All__4
 python scripts_database/process_dataset.py \
     $DATABASE_DIR/pdb \
     $DATABASE_DIR/fasta \
     $DATABASE_DIR/info \
-    20220319_99_True_All__4 \
+    $DATABASE_VERSION \
     --merge_rosetta true \
     --merge_therapeutics true
 
 # 4. generate pretraining LM embeddings from esm1b
+ESM_MODEL_PATH=$SCRATCH/biofold/pretrained_weights/esm_params/esm1b_t33_650M_UR50S.pt
+python scripts_database/extract_esm.py \
+    $ESM_MODEL_PATH \
+    $DATABASE_DIR/fasta/merged/${DATABASE_VERSION}_train.fasta \
+    $SCRATCH/biofold/pretrained_embeddings/esm1b/${DATABASE_VERSION}_train \
+    --repr_layers 33 \
+    --include per_tok \
 
+python scripts_database/extract_esm.py \
+    $ESM_MODEL_PATH \
+    $DATABASE_DIR/fasta/merged/${DATABASE_VERSION}_valid.fasta \
+    $SCRATCH/biofold/pretrained_embeddings/esm1b/${DATABASE_VERSION}_valid \
+    --repr_layers 33 \
+    --include per_tok \
+
+python scripts_database/extract_esm.py \
+    $ESM_MODEL_PATH \
+    $DATABASE_DIR/fasta/merged/rosetta.fasta \
+    $SCRATCH/biofold/pretrained_embeddings/esm1b/rosetta \
+    --repr_layers 33 \
+    --include per_tok \
+
+python scripts_database/extract_esm.py \
+    $ESM_MODEL_PATH \
+    $DATABASE_DIR/fasta/merged/therapeutics.fasta \
+    $SCRATCH/biofold/pretrained_embeddings/esm1b/therapeutics \
+    --repr_layers 33 \
+    --include per_tok \
+
+# 5. merge the generated H/L chain embeddings
+python scripts_database/merge_esm.py \
+    $SCRATCH/biofold/pretrained_embeddings/esm1b/${DATABASE_VERSION}_train \
+    $SCRATCH/biofold/pretrained_embeddings/esm1b/${DATABASE_VERSION}_train_merged \
+    --model_name esm1b
+
+python scripts_database/merge_esm.py \
+    $SCRATCH/biofold/pretrained_embeddings/esm1b/${DATABASE_VERSION}_valid \
+    $SCRATCH/biofold/pretrained_embeddings/esm1b/${DATABASE_VERSION}_valid_merged \
+    --model_name esm1b
+
+python scripts_database/merge_esm.py \
+    $SCRATCH/biofold/pretrained_embeddings/esm1b/rosetta \
+    $SCRATCH/biofold/pretrained_embeddings/esm1b/rosetta_merged \
+    --model_name esm1b
+
+python scripts_database/merge_esm.py \
+    $SCRATCH/biofold/pretrained_embeddings/esm1b/therapeutics \
+    $SCRATCH/biofold/pretrained_embeddings/esm1b/therapeutics_merged \
+    --model_name esm1b

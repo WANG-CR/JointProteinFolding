@@ -21,6 +21,7 @@ dependencies:
       - git+https://github.com/NVIDIA/dllogger.git
       - nvidia-pyindex
       - beautifulsoup4
+      - fair-esm
   - matplotlib
   - pytorch::pytorch=1.10.0
   - conda-forge::python=3.7

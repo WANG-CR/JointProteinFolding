@@ -21,6 +21,7 @@ dependencies:
       - git+https://github.com/NVIDIA/dllogger.git
       - nvidia-pyindex
       - beautifulsoup4
+      - fair-esm
   - intel-openmp=2021.4.0
   - cudatoolkit=11.3
   - matplotlib
