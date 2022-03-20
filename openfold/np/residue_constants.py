@@ -453,6 +453,8 @@ def load_stereo_chemical_props() -> Tuple[
       residue_bond_angles: dict that maps resname --> list of BondAngle tuples
     """
     # TODO: this file should be downloaded in a setup script
+    # https://git.scicore.unibas.ch/schwede/openstructure/-/raw/7102c63615b64735c4941278d92b554ec94415f8/modules/mol/alg/src/stereo_chemical_props.txt
+    
     stereo_chemical_props = resources.read_text("openfold.resources", "stereo_chemical_props.txt")
 
     lines_iter = iter(stereo_chemical_props.splitlines())
@@ -1068,8 +1070,8 @@ def chi_angle_atom(atom_index: int) -> np.ndarray:
         one_hots.append(one_hot)
 
     one_hots.append(np.zeros([4, atom_type_num]))  # Add zeros for residue `X`.
-    one_hot = np.stack(one_hots, axis=0)
-    one_hot = np.transpose(one_hot, [0, 2, 1])
+    one_hot = np.stack(one_hots, axis=0) # (21, 4, 37)
+    one_hot = np.transpose(one_hot, [0, 2, 1]) # (21, 37, 4)
 
     return one_hot
 

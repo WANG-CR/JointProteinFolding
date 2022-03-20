@@ -59,6 +59,7 @@ def make_seq_mask(protein):
     protein["seq_mask"] = torch.ones(
         protein["aatype"].shape, dtype=torch.float32
     )
+    protein["loop_mask"] = (protein["loop_index"] != 0).to(torch.float32)
     return protein
 
 
@@ -70,7 +71,10 @@ def make_template_mask(protein):
 
 
 def curry1(f):
-    """Supply all arguments but the first."""
+    """Supply all arguments but the first.
+       https://stackoverflow.com/questions/308999/what-does-functools-wraps-do.
+    """
+
     @wraps(f)
     def fc(*args, **kwargs):
         return lambda x: f(x, *args, **kwargs)
@@ -89,15 +93,15 @@ def fix_templates_aatype(protein):
     if(num_templates > 0):
         protein["template_aatype"] = torch.argmax(
             protein["template_aatype"], dim=-1
-        )
+        ) # [num_templates, N]
         # Map hhsearch-aatype to our aatype.
         new_order_list = rc.MAP_HHBLITS_AATYPE_TO_OUR_AATYPE
         new_order = torch.tensor(new_order_list, dtype=torch.int64).expand(
             num_templates, -1
-        )
+        ) # [num_templates, 20 + 2]
         protein["template_aatype"] = torch.gather(
             new_order, 1, index=protein["template_aatype"]
-        )
+        ) # [num_templates, N]
 
     return protein
 
@@ -107,8 +111,8 @@ def correct_msa_restypes(protein):
     new_order_list = rc.MAP_HHBLITS_AATYPE_TO_OUR_AATYPE
     new_order = torch.tensor(
         [new_order_list] * protein["msa"].shape[1], dtype=protein["msa"].dtype
-    ).transpose(0, 1)
-    protein["msa"] = torch.gather(new_order, 0, protein["msa"])
+    ).transpose(0, 1) # [20 + 2, N]
+    protein["msa"] = torch.gather(new_order, 0, protein["msa"]) # [#msa, N]
 
     perm_matrix = np.zeros((22, 22), dtype=np.float32)
     perm_matrix[range(len(new_order_list)), new_order_list] = 1.0
@@ -498,6 +502,9 @@ def make_fixed_size(
         padding = [(0, p - v.shape[i]) for i, p in enumerate(pad_size)]
         padding.reverse()
         padding = list(itertools.chain(*padding))
+        # a workaround for residue embedding, we do not pad the first dimension
+        if k == "residue_emb":
+            padding = padding[:-2]
         if padding:
             protein[k] = torch.nn.functional.pad(v, padding)
             protein[k] = torch.reshape(protein[k], pad_size)
@@ -1089,9 +1096,13 @@ def atom37_to_torsion_angles(
 
 def get_backbone_frames(protein):
     # DISCREPANCY: AlphaFold uses tensor_7s here. I don't know why.
+    # COMMENT: tensor_7s is more compatible with quaternion operations
     protein["backbone_rigid_tensor"] = protein["rigidgroups_gt_frames"][
         ..., 0, :, :
     ]
+    protein["backbone_rigid_tensor_7s"] = Rigid.from_tensor_4x4(
+        protein["backbone_rigid_tensor"]
+    ).to_tensor_7()
     protein["backbone_rigid_mask"] = protein["rigidgroups_gt_exists"][..., 0]
 
     return protein

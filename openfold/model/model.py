@@ -67,10 +67,12 @@ class AlphaFold(nn.Module):
         config = config.model
         template_config = config.template
         extra_msa_config = config.extra_msa
+        self.config = config
 
         # Main trunk + structure module
         self.input_embedder = InputEmbedder(
             **config["input_embedder"],
+            residue_emb_cfg=config["residue_emb"],
         )
         self.recycling_embedder = RecyclingEmbedder(
             **config["recycling_embedder"],
@@ -197,10 +199,11 @@ class AlphaFold(nn.Module):
 
         # m: [*, S_c, N, C_m]
         # z: [*, N, N, C_z]
-        m, z = self.input_embedder(
+        m, z, residue_emb = self.input_embedder(
             feats["target_feat"],
             feats["residue_index"],
             feats["msa_feat"],
+            feats["residue_emb"],
         )
 
         # Initialize the recycling embeddings, if needs be
@@ -240,17 +243,33 @@ class AlphaFold(nn.Module):
         # conditionally to avoid leaving parameters unused, which has annoying
         # implications for DDP training.
         if(not _recycle):
-            m_1_prev_emb *= 0
-            z_prev_emb *= 0
+            m_1_prev_emb = m_1_prev_emb * 0
+            z_prev_emb = z_prev_emb * 0
 
         # [*, S_c, N, C_m]
-        m[..., 0, :, :] += m_1_prev_emb
+        m[..., 0, :, :] = m[..., 0, :, :] + m_1_prev_emb
 
         # [*, N, N, C_z]
-        z += z_prev_emb
+        z = z + z_prev_emb
 
         # Possibly prevents memory fragmentation
         del m_1_prev, z_prev, x_prev, m_1_prev_emb, z_prev_emb
+
+        # Merge residue_emb with MSAs
+        if self.config.residue_emb.enabled:
+            if self.config.residue_emb.usage == "msa":
+                # [*, N_model, N_res, c_m]
+                assert m.ndim == residue_emb.ndim, "size of MSAs do not match with the size of residue embeddings"
+                m = torch.cat(
+                    [m, residue_emb], 
+                    dim=-3
+                )
+                msa_mask = torch.cat(
+                    [feats["msa_mask"], seq_mask.unsqueeze(-2).expand(
+                        *([-1] * (seq_mask.ndim - 1) + [residue_emb.size(-3), -1])
+                    )],
+                    dim=-2
+                )
 
         # Embed the templates + merge with MSA/pair embeddings
         if self.config.template.enabled:

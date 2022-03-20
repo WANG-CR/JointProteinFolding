@@ -17,8 +17,10 @@ import os
 import datetime
 from multiprocessing import cpu_count
 from typing import Mapping, Optional, Sequence, Any
+from collections import OrderedDict
 
 import numpy as np
+import torch
 
 from openfold.data import templates, parsers, mmcif_parsing
 from openfold.data.tools import jackhmmer, hhblits, hhsearch
@@ -66,7 +68,11 @@ def make_template_features(
 
 
 def make_sequence_features(
-    sequence: str, description: str, num_res: int
+    sequence: str,
+    description: str,
+    num_res: int,
+    chain_index: Optional[np.ndarray] = None,
+    loop_index: Optional[np.ndarray] = None,
 ) -> FeatureDict:
     """Construct a feature dict of sequence features."""
     features = {}
@@ -80,10 +86,20 @@ def make_sequence_features(
         [description.encode("utf-8")], dtype=np.object_
     )
     features["residue_index"] = np.array(range(num_res), dtype=np.int32)
+    if chain_index is not None:
+        chain_index = chain_index.astype(np.int32)
+        features["chain_index"] = chain_index
+        chain_gap = 100 * np.ones(num_res, dtype=np.int32)
+        features["residue_index"] += (chain_index * chain_gap)
+            
     features["seq_length"] = np.array([num_res] * num_res, dtype=np.int32)
     features["sequence"] = np.array(
         [sequence.encode("utf-8")], dtype=np.object_
     )
+    if loop_index is None:
+        loop_index = np.zeros_like(features["residue_index"])
+    loop_index = loop_index.astype(np.int32)
+    features["loop_index"] = loop_index
     return features
 
 
@@ -138,11 +154,16 @@ def make_protein_features(
     pdb_feats = {}
     aatype = protein_object.aatype
     sequence = _aatype_to_str_sequence(aatype)
+    chain_index = protein_object.chain_index
+    loop_index = protein_object.loop_index
+    
     pdb_feats.update(
         make_sequence_features(
             sequence=sequence,
             description=description,
             num_res=len(protein_object.aatype),
+            chain_index=chain_index,
+            loop_index=loop_index,
         )
     )
 
@@ -166,8 +187,11 @@ def make_pdb_features(
     confidence_threshold: float = 0.5,
     is_distillation: bool = True,
 ) -> FeatureDict:
+    
     pdb_feats = make_protein_features(
-        protein_object, description, _is_distillation=True
+        protein_object,
+        description,
+        _is_distillation=is_distillation,
     )
 
     if(is_distillation):
@@ -419,6 +443,44 @@ class DataPipeline:
     ):
         self.template_featurizer = template_featurizer
 
+    def _parse_emb_data(
+        self,
+        embedding_dir: str,
+        padding_size: int,
+        _alignment_index: Optional[Any] = None,
+    ) -> Mapping[str, Any]:
+        emb_data = {}
+        
+        if(_alignment_index is not None):
+            raise ValueError(
+                f"""
+                Method _parse_emb_data with _alignment_index provided is not supported.
+                """
+            )
+        else:
+            for f in os.listdir(embedding_dir):
+                path = os.path.join(embedding_dir, f)
+                basename, ext = os.path.splitext(f)
+                
+                if ext == ".pt":
+                    data = torch.load(path).numpy().astype(np.float32)
+                    emb_dim = data.shape[-1]
+                    if emb_dim > padding_size:
+                        raise ValueError(
+                            f"""
+                            The dimension of embedding feats ({emb_dim}) \
+                                should not exceed the padding size ({padding_size}).
+                            """
+                        )
+                    padding_data = np.zeros(data.shape[:-1] + (padding_size - emb_dim, ), dtype=np.float32)
+                    data = np.concatenate([data, padding_data], axis=-1)
+                else:
+                    continue
+                
+                emb_data[f] = data
+        
+        return emb_data
+
     def _parse_msa_data(
         self,
         alignment_dir: str,
@@ -508,6 +570,46 @@ class DataPipeline:
 
         return all_hits
 
+    def _process_emb_feats(
+        self,
+        embedding_dir: str,
+        input_sequence: str,
+        padding_size: int = 1280,
+        _alignment_index: Optional[str] = None,
+    ) -> Mapping[str, Any]:
+        if embedding_dir is None:
+            emb_feats = np.zeros((0, len(input_sequence), padding_size)).astype(np.float32)
+            return {"residue_emb": emb_feats}
+        
+        emb_data = self._parse_emb_data(embedding_dir, padding_size, _alignment_index)
+        if (len(emb_data) == 0):
+            if (input_sequence is None):
+                raise ValueError(
+                    """
+                    If the embedding dir contains no pre-trained embeddings, 
+                    an input sequence must be provided.
+                    """
+                )
+            emb_feats = np.zeros((0, len(input_sequence), padding_size)).astype(np.float32)
+        
+        else:
+            # Warning: we need to make the emb_data order-sensitive!
+            # Dictionary sorted by key in alphabetical order
+            # Typically, esm1b appears earlier than oas
+            emb_data = OrderedDict(sorted(emb_data.items(), key=lambda k: k[0]))
+            # [num_emb_feats, n_seq, emb_dim]
+            emb_feats = np.stack(list(emb_data.values()), axis=0)
+        
+        if emb_feats.shape[1] != len(input_sequence):
+            raise ValueError(
+                f"""
+                The dimension of embedding feats ({emb_feats.shape[1]}) \
+                    does not match the input sequence ({len(input_sequence)}).
+                """
+            )            
+            
+        return {"residue_emb": emb_feats}
+
     def _process_msa_feats(
         self,
         alignment_dir: str,
@@ -544,19 +646,22 @@ class DataPipeline:
         self,
         fasta_path: str,
         alignment_dir: str,
+        embedding_dir: Optional[str] = None,
         _alignment_index: Optional[str] = None,
     ) -> FeatureDict:
         """Assembles features for a single sequence in a FASTA file""" 
-        with open(fasta_path) as f:
+        with open(fasta_path, 'r') as f:
             fasta_str = f.read()
         input_seqs, input_descs = parsers.parse_fasta(fasta_str)
-        if len(input_seqs) != 1:
+        if len(input_seqs) != 2:
             raise ValueError(
-                f"More than one input sequence found in {fasta_path}."
+                "The input sequence should contain a heavy chain and a light chain."
             )
-        input_sequence = input_seqs[0]
+        
+        input_sequence = input_seqs[0] + input_seqs[1]
         input_description = input_descs[0]
         num_res = len(input_sequence)
+        chain_index = np.array([0] * len(input_seqs[0]) + [1] * len(input_seqs[1]))
 
         hits = self._parse_template_hits(alignment_dir, _alignment_index)
         template_features = make_template_features(
@@ -569,14 +674,22 @@ class DataPipeline:
             sequence=input_sequence,
             description=input_description,
             num_res=num_res,
+            chain_index=chain_index,
         )
 
         msa_features = self._process_msa_feats(alignment_dir, input_sequence, _alignment_index)
+        emb_features = self._process_emb_feats(
+            embedding_dir,
+            input_sequence,
+            padding_size=1280,
+            _alignment_index=_alignment_index,
+        )
         
         return {
             **sequence_features,
             **msa_features, 
-            **template_features
+            **template_features,
+            **emb_features,
         }
 
     def process_mmcif(
@@ -584,6 +697,7 @@ class DataPipeline:
         mmcif: mmcif_parsing.MmcifObject,  # parsing is expensive, so no path
         alignment_dir: str,
         chain_id: Optional[str] = None,
+        embedding_dir: Optional[str] = None,
         _alignment_index: Optional[str] = None,
     ) -> FeatureDict:
         """
@@ -611,8 +725,19 @@ class DataPipeline:
         )
         
         msa_features = self._process_msa_feats(alignment_dir, input_sequence, _alignment_index)
-
-        return {**mmcif_feats, **template_features, **msa_features}
+        emb_features = self._process_emb_feats(
+            embedding_dir,
+            input_sequence,
+            padding_size=1280,
+            _alignment_index=_alignment_index,
+        )
+        
+        return {
+            **mmcif_feats,
+            **template_features,
+            **msa_features,
+            **emb_features,
+        }
 
     def process_pdb(
         self,
@@ -620,6 +745,8 @@ class DataPipeline:
         alignment_dir: str,
         is_distillation: bool = True,
         chain_id: Optional[str] = None,
+        embedding_dir: Optional[str] = None,
+        resolution: Optional[float] = None,
         _alignment_index: Optional[str] = None,
     ) -> FeatureDict:
         """
@@ -628,14 +755,16 @@ class DataPipeline:
         with open(pdb_path, 'r') as f:
             pdb_str = f.read()
 
-        protein_object = protein.from_pdb_string(pdb_str, chain_id)
+        protein_object = protein.from_pdb_string_antibody(pdb_str, chain_id)
         input_sequence = _aatype_to_str_sequence(protein_object.aatype) 
         description = os.path.splitext(os.path.basename(pdb_path))[0].upper()
         pdb_feats = make_pdb_features(
-            protein_object, 
-            description, 
-            is_distillation
+            protein_object,
+            description,
+            is_distillation=is_distillation,
         )
+        if resolution is not None:
+            pdb_feats["resolution"] = np.array([resolution], dtype=np.float32)
 
         hits = self._parse_template_hits(alignment_dir, _alignment_index)
         template_features = make_template_features(
@@ -645,13 +774,25 @@ class DataPipeline:
         )
 
         msa_features = self._process_msa_feats(alignment_dir, input_sequence, _alignment_index)
-
-        return {**pdb_feats, **template_features, **msa_features}
+        emb_features = self._process_emb_feats(
+            embedding_dir,
+            input_sequence,
+            padding_size=1280,
+            _alignment_index=_alignment_index,
+        )
+        
+        return {
+            **pdb_feats,
+            **template_features,
+            **msa_features,
+            **emb_features,
+        }
 
     def process_core(
         self,
         core_path: str,
         alignment_dir: str,
+        embedding_dir: Optional[str] = None,
         _alignment_index: Optional[str] = None,
     ) -> FeatureDict:
         """
@@ -673,6 +814,17 @@ class DataPipeline:
         )
 
         msa_features = self._process_msa_feats(alignment_dir, input_sequence)
-
-        return {**core_feats, **template_features, **msa_features}
+        emb_features = self._process_emb_feats(
+            embedding_dir,
+            input_sequence,
+            padding_size=1280,
+            _alignment_index=_alignment_index,
+        )
+        
+        return {
+            **core_feats,
+            **template_features,
+            **msa_features,
+            **emb_features,
+        }
 

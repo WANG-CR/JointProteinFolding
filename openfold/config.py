@@ -83,6 +83,7 @@ def model_config(name, train=False, low_prec=False):
 
     if low_prec:
         c.globals.eps = 1e-4
+        c.globals.low_prec = True
         # If we want exact numerical parity with the original, inf can't be
         # a global constant
         set_inf(c, 1e4)
@@ -101,6 +102,7 @@ aux_distogram_bins = mlc.FieldReference(64, field_type=int)
 tm_enabled = mlc.FieldReference(False, field_type=bool)
 eps = mlc.FieldReference(1e-8, field_type=float)
 templates_enabled = mlc.FieldReference(True, field_type=bool)
+residue_emb_enabled = mlc.FieldReference(False, field_type=bool)
 embed_template_torsion_angles = mlc.FieldReference(True, field_type=bool)
 
 NUM_RES = "num residues placeholder"
@@ -114,6 +116,8 @@ config = mlc.ConfigDict(
             "common": {
                 "feat": {
                     "aatype": [NUM_RES],
+                    "loop_index": [NUM_RES],
+                    "loop_mask": [NUM_RES],
                     "all_atom_mask": [NUM_RES, None],
                     "all_atom_positions": [NUM_RES, None, None],
                     "alt_chi_angles": [NUM_RES, None],
@@ -126,6 +130,7 @@ config = mlc.ConfigDict(
                     "atom37_atom_exists": [NUM_RES, None],
                     "backbone_rigid_mask": [NUM_RES],
                     "backbone_rigid_tensor": [NUM_RES, None, None],
+                    "backbone_rigid_tensor_7s": [NUM_RES, None],
                     "bert_mask": [NUM_MSA_SEQ, NUM_RES],
                     "chi_angles_sin_cos": [NUM_RES, None, None],
                     "chi_mask": [NUM_RES, None],
@@ -142,6 +147,7 @@ config = mlc.ConfigDict(
                     "pseudo_beta": [NUM_RES, None],
                     "pseudo_beta_mask": [NUM_RES],
                     "residue_index": [NUM_RES],
+                    "residue_emb": [None, NUM_RES, None],
                     "residx_atom14_to_atom37": [NUM_RES, None],
                     "residx_atom37_to_atom14": [NUM_RES, None],
                     "resolution": [],
@@ -203,6 +209,8 @@ config = mlc.ConfigDict(
                     "between_segment_residues",
                     "deletion_matrix",
                     "no_recycling_iters",
+                    "residue_emb",
+                    "loop_index",
                 ],
                 "use_templates": templates_enabled,
                 "use_template_torsion_angles": embed_template_torsion_angles,
@@ -274,6 +282,7 @@ config = mlc.ConfigDict(
             "c_e": c_e,
             "c_s": c_s,
             "eps": eps,
+            "low_prec": False,
         },
         "model": {
             "_mask_trans": False,
@@ -291,6 +300,12 @@ config = mlc.ConfigDict(
                 "max_bin": 20.75,
                 "no_bins": 15,
                 "inf": 1e8,
+            },
+            "residue_emb": {
+                "c_emb": 1280,
+                "num_emb_feats": 1,
+                "usage": "cat",
+                "enabled": residue_emb_enabled,
             },
             "template": {
                 "distogram": {

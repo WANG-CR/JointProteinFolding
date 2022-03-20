@@ -1,3 +1,4 @@
+import csv
 import copy
 from functools import partial
 import json
@@ -24,7 +25,8 @@ from openfold.utils.tensor_utils import tensor_tree_map, dict_multimap
 class OpenFoldSingleDataset(torch.utils.data.Dataset):
     def __init__(self,
         data_dir: str,
-        alignment_dir: str, 
+        alignment_dir: str,
+        embedding_dir: str,
         template_mmcif_dir: str,
         max_template_date: str,
         config: mlc.ConfigDict,
@@ -37,7 +39,8 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
         mapping_path: Optional[str] = None,
         mode: str = "train", 
         _output_raw: bool = False,
-        _alignment_index: Optional[Any] = None
+        sabdab_summary_file: Optional[str] = None,
+        _alignment_index: Optional[Any] = None,
     ):
         """
             Args:
@@ -51,6 +54,9 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
                     I.e. a directory of directories named {PDB_ID}_{CHAIN_ID}
                     or simply {PDB_ID}, each containing .a3m, .sto, and .hhr
                     files.
+                embedding_dir:
+                    A path to a directory containing pre-trained residue embedding
+                    from protein language models, e.g., ESM-1b.
                 template_mmcif_dir:
                     Path to a directory containing template mmCIF files.
                 config:
@@ -80,6 +86,7 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
         super(OpenFoldSingleDataset, self).__init__()
         self.data_dir = data_dir
         self.alignment_dir = alignment_dir
+        self.embedding_dir = embedding_dir
         self.config = config
         self.treat_pdb_as_distillation = treat_pdb_as_distillation
         self.mode = mode
@@ -99,7 +106,10 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
         if(_alignment_index is not None):
             self._chain_ids = list(_alignment_index.keys())
         elif(mapping_path is None):
-            self._chain_ids = list(os.listdir(alignment_dir))
+            #self._chain_ids = list(os.listdir(alignment_dir))
+            self._chain_ids = [
+                os.path.splitext(name)[0] for name in os.listdir(data_dir)
+            ]
         else:
             with open(mapping_path, "r") as f:
                 self._chain_ids = [l.strip() for l in f.readlines()]
@@ -108,24 +118,36 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
             chain: i for i, chain in enumerate(self._chain_ids)
         }
 
-        template_featurizer = templates.TemplateHitFeaturizer(
-            mmcif_dir=template_mmcif_dir,
-            max_template_date=max_template_date,
-            max_hits=max_template_hits,
-            kalign_binary_path=kalign_binary_path,
-            release_dates_path=template_release_dates_cache_path,
-            obsolete_pdbs_path=obsolete_pdbs_file_path,
-            _shuffle_top_k_prefiltered=shuffle_top_k_prefiltered,
-        )
+        # template_featurizer = templates.TemplateHitFeaturizer(
+        #     mmcif_dir=template_mmcif_dir,
+        #     max_template_date=max_template_date,
+        #     max_hits=max_template_hits,
+        #     kalign_binary_path=kalign_binary_path,
+        #     release_dates_path=template_release_dates_cache_path,
+        #     obsolete_pdbs_path=obsolete_pdbs_file_path,
+        #     _shuffle_top_k_prefiltered=shuffle_top_k_prefiltered,
+        # )
+        template_featurizer = None
 
         self.data_pipeline = data_pipeline.DataPipeline(
             template_featurizer=template_featurizer,
         )
 
         if(not self._output_raw):
-            self.feature_pipeline = feature_pipeline.FeaturePipeline(config) 
+            self.feature_pipeline = feature_pipeline.FeaturePipeline(config)
+            
+        self.resolution = {}
+        if sabdab_summary_file is not None:
+            with open(sabdab_summary_file, "r") as fin:
+                reader = csv.reader(fin, delimiter="\t")
+                fields = next(reader)
+                pdb_index = fields.index("pdb")
+                res_index = fields.index("resolution")
+                for values in reader:
+                    if pdb_index < len(values) and res_index < len(values):
+                        self.resolution[values[pdb_index]] = float(values[res_index])
 
-    def _parse_mmcif(self, path, file_id, chain_id, alignment_dir, _alignment_index):
+    def _parse_mmcif(self, path, file_id, chain_id, alignment_dir, embedding_dir, _alignment_index):
         with open(path, 'r') as f:
             mmcif_string = f.read()
 
@@ -144,7 +166,8 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
             mmcif=mmcif_object,
             alignment_dir=alignment_dir,
             chain_id=chain_id,
-            _alignment_index=_alignment_index
+            embedding_dir=embedding_dir,
+            _alignment_index=_alignment_index,
         )
 
         return data
@@ -158,6 +181,21 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
     def __getitem__(self, idx):
         name = self.idx_to_chain_id(idx)
         alignment_dir = os.path.join(self.alignment_dir, name)
+
+        if not os.path.exists(alignment_dir):
+            # disable alignment
+            alignment_dir = self.alignment_dir
+
+        if self.embedding_dir is not None:
+            embedding_dir = os.path.join(self.embedding_dir, name)
+            if not os.path.exists(embedding_dir):
+                raise ValueError(
+                    f"""
+                     The embedding dir {embedding_dir} does not exist.
+                     """
+                )
+        else:
+            embedding_dir = None
 
         _alignment_index = None
         if(self._alignment_index is not None):
@@ -175,18 +213,21 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
             path = os.path.join(self.data_dir, file_id)
             if(os.path.exists(path + ".cif")):
                 data = self._parse_mmcif(
-                    path + ".cif", file_id, chain_id, alignment_dir, _alignment_index,
+                    path + ".cif", file_id, chain_id, alignment_dir, embedding_dir, _alignment_index,
                 )
             elif(os.path.exists(path + ".core")):
                 data = self.data_pipeline.process_core(
-                    path + ".core", alignment_dir, _alignment_index,
+                    path + ".core", alignment_dir, embedding_dir, _alignment_index,
                 )
             elif(os.path.exists(path + ".pdb")):
+                resolution = self.resolution.get(file_id, 0)
                 data = self.data_pipeline.process_pdb(
                     pdb_path=path + ".pdb",
                     alignment_dir=alignment_dir,
                     is_distillation=self.treat_pdb_as_distillation,
                     chain_id=chain_id,
+                    embedding_dir=embedding_dir,
+                    resolution=resolution,
                     _alignment_index=_alignment_index,
                 )
             else:
@@ -196,6 +237,7 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
             data = self.data_pipeline.process_fasta(
                 fasta_path=path,
                 alignment_dir=alignment_dir,
+                embedding_dir=embedding_dir,
                 _alignment_index=_alignment_index,
             )
 
@@ -217,7 +259,8 @@ def deterministic_train_filter(
     max_resolution: float = 9.,
     max_single_aa_prop: float = 0.8,
 ) -> bool:
-    # Hard filters
+    """Training data filters as described in Supplement. 1.2.5"""
+    # Hard filters. Input mmCIFs are restricted to have resolution less than 9A.
     resolution = chain_data_cache_entry.get("resolution", None)
     if(resolution is not None and resolution > max_resolution):
         return False
@@ -229,6 +272,9 @@ def deterministic_train_filter(
         counts[aa] += 1
     largest_aa_count = max(counts.values())
     largest_single_aa_prop = largest_aa_count / len(seq)
+    
+    # Sequences are filtered out when any single amino acid
+    # accounts for more than 80% of the input primary sequence.
     if(largest_single_aa_prop > max_single_aa_prop):
         return False
 
@@ -238,6 +284,7 @@ def deterministic_train_filter(
 def get_stochastic_train_filter_prob(
     chain_data_cache_entry: Any,
 ) -> List[float]:
+    """Training data filters as described in Supplement. 1.2.5"""
     # Stochastic filters
     probabilities = []
     
@@ -267,7 +314,7 @@ class OpenFoldDataset(torch.utils.data.Dataset):
         datasets: Sequence[OpenFoldSingleDataset],
         probabilities: Sequence[int],
         epoch_len: int,
-        chain_data_cache_paths: List[str],
+        chain_data_cache_paths: List[Optional[str]],
         generator: torch.Generator = None,
         _roll_at_init: bool = True,
     ):
@@ -276,10 +323,13 @@ class OpenFoldDataset(torch.utils.data.Dataset):
         self.epoch_len = epoch_len
         self.generator = generator
         
-        self.chain_data_caches = []
-        for path in chain_data_cache_paths:
-            with open(path, "r") as fp:
-                self.chain_data_caches.append(json.load(fp))
+        if None in chain_data_cache_paths:
+            self.chain_data_caches = None
+        else:
+            self.chain_data_caches = []
+            for path in chain_data_cache_paths:
+                with open(path, "r") as fp:
+                    self.chain_data_caches.append(json.load(fp))
 
         def looped_shuffled_dataset_idx(dataset_len):
             while True:
@@ -298,20 +348,28 @@ class OpenFoldDataset(torch.utils.data.Dataset):
             max_cache_len = int(epoch_len * probabilities[dataset_idx])
             dataset = self.datasets[dataset_idx]
             idx_iter = looped_shuffled_dataset_idx(len(dataset))
-            chain_data_cache = self.chain_data_caches[dataset_idx]
+            
+            # if chain_data_cache_paths is not provided,
+            # we ignore all train_filters described in Supplement. 1.2.5
+            chain_data_cache = self.chain_data_caches[dataset_idx] \
+                if self.chain_data_caches is not None else None
+            
             while True:
                 weights = []
                 idx = []
                 for _ in range(max_cache_len):
                     candidate_idx = next(idx_iter)
                     chain_id = dataset.idx_to_chain_id(candidate_idx)
-                    chain_data_cache_entry = chain_data_cache[chain_id]
-                    if(not deterministic_train_filter(chain_data_cache_entry)):
-                        continue
+                    
+                    p = 1.0 # if not filtered, always accept the candidate
+                    if chain_data_cache is not None: # perform filtering
+                        chain_data_cache_entry = chain_data_cache[chain_id]
+                        if(not deterministic_train_filter(chain_data_cache_entry)):
+                            continue
 
-                    p = get_stochastic_train_filter_prob(
-                        chain_data_cache_entry,
-                    )
+                        p = get_stochastic_train_filter_prob(
+                            chain_data_cache_entry,
+                        )
                     weights.append([1. - p, p])
                     idx.append(candidate_idx)
 
@@ -320,6 +378,7 @@ class OpenFoldDataset(torch.utils.data.Dataset):
                     num_samples=1,
                     generator=self.generator,
                 )
+                # [max_cache_len, ], flags for acceptance
                 samples = samples.squeeze()
 
                 cache = [i for i, s in zip(idx, samples) if s]
@@ -389,6 +448,10 @@ class OpenFoldDataLoader(torch.utils.data.DataLoader):
 
         max_iters = self.config.common.max_recycling_iters
         if(stage_cfg.supervised):
+            # Supplement 1.11.5
+            # In 90% of training mini-batches the FAPE backbone loss is clamped by e_max = 10A.
+            # In the remaining 10% it is not clamped, e_max = + \infty.
+            # For side-chains it is always clamped by e_max = 10A.
             clamp_prob = self.config.supervised.clamp_prob
             keyed_probs.append(
                 ("use_clamped_fape", [1 - clamp_prob, clamp_prob])
@@ -471,21 +534,26 @@ class OpenFoldDataModule(pl.LightningDataModule):
         max_template_date: str,
         train_data_dir: Optional[str] = None,
         train_alignment_dir: Optional[str] = None,
+        train_embedding_dir: Optional[str] = None,
         train_chain_data_cache_path: Optional[str] = None,
         distillation_data_dir: Optional[str] = None,
         distillation_alignment_dir: Optional[str] = None,
+        distillation_embedding_dir: Optional[str] = None,
         distillation_chain_data_cache_path: Optional[str] = None,
         val_data_dir: Optional[str] = None,
         val_alignment_dir: Optional[str] = None,
+        val_embedding_dir: Optional[str] = None,
         predict_data_dir: Optional[str] = None,
         predict_alignment_dir: Optional[str] = None,
+        predict_embedding_dir: Optional[str] = None,
         kalign_binary_path: str = '/usr/bin/kalign',
         train_mapping_path: Optional[str] = None,
         distillation_mapping_path: Optional[str] = None,
         obsolete_pdbs_file_path: Optional[str] = None,
         template_release_dates_cache_path: Optional[str] = None,
         batch_seed: Optional[int] = None,
-        train_epoch_len: int = 50000, 
+        train_epoch_len: Optional[int] = None,
+        sabdab_summary_file: Optional[str] = None,
         _alignment_index_path: Optional[str] = None,
         **kwargs
     ):
@@ -496,16 +564,20 @@ class OpenFoldDataModule(pl.LightningDataModule):
         self.max_template_date = max_template_date
         self.train_data_dir = train_data_dir
         self.train_alignment_dir = train_alignment_dir
+        self.train_embedding_dir = train_embedding_dir
         self.train_chain_data_cache_path = train_chain_data_cache_path
         self.distillation_data_dir = distillation_data_dir
         self.distillation_alignment_dir = distillation_alignment_dir
+        self.distillation_embedding_dir = distillation_embedding_dir
         self.distillation_chain_data_cache_path = (
             distillation_chain_data_cache_path
         )
         self.val_data_dir = val_data_dir
         self.val_alignment_dir = val_alignment_dir
+        self.val_embedding_dir = val_embedding_dir
         self.predict_data_dir = predict_data_dir
         self.predict_alignment_dir = predict_alignment_dir
+        self.predict_embedding_dir = predict_embedding_dir
         self.kalign_binary_path = kalign_binary_path
         self.train_mapping_path = train_mapping_path
         self.distillation_mapping_path = distillation_mapping_path
@@ -515,6 +587,7 @@ class OpenFoldDataModule(pl.LightningDataModule):
         self.obsolete_pdbs_file_path = obsolete_pdbs_file_path
         self.batch_seed = batch_seed
         self.train_epoch_len = train_epoch_len
+        self.sabdab_summary_file = sabdab_summary_file
 
         if(self.train_data_dir is None and self.predict_data_dir is None):
             raise ValueError(
@@ -561,6 +634,7 @@ class OpenFoldDataModule(pl.LightningDataModule):
             train_dataset = dataset_gen(
                 data_dir=self.train_data_dir,
                 alignment_dir=self.train_alignment_dir,
+                embedding_dir=self.train_embedding_dir,
                 mapping_path=self.train_mapping_path,
                 max_template_hits=self.config.train.max_template_hits,
                 shuffle_top_k_prefiltered=
@@ -568,6 +642,7 @@ class OpenFoldDataModule(pl.LightningDataModule):
                 treat_pdb_as_distillation=False,
                 mode="train",
                 _output_raw=True,
+                sabdab_summary_file=self.sabdab_summary_file,
                 _alignment_index=self._alignment_index,
             )
 
@@ -576,6 +651,7 @@ class OpenFoldDataModule(pl.LightningDataModule):
                 distillation_dataset = dataset_gen(
                     data_dir=self.distillation_data_dir,
                     alignment_dir=self.distillation_alignment_dir,
+                    embedding_dir=self.distillation_embedding_dir,
                     mapping_path=self.distillation_mapping_path,
                     max_template_hits=self.train.max_template_hits,
                     treat_pdb_as_distillation=True,
@@ -599,11 +675,11 @@ class OpenFoldDataModule(pl.LightningDataModule):
                 chain_data_cache_paths = [
                     self.train_chain_data_cache_path,
                 ]
-
+            train_epoch_len = self.train_epoch_len or sum([_.len() for _ in datasets])
             self.train_dataset = OpenFoldDataset(
                 datasets=datasets,
                 probabilities=probabilities,
-                epoch_len=self.train_epoch_len,
+                epoch_len=train_epoch_len,
                 chain_data_cache_paths=chain_data_cache_paths,
                 _roll_at_init=False,
             )
@@ -612,6 +688,7 @@ class OpenFoldDataModule(pl.LightningDataModule):
                 self.eval_dataset = dataset_gen(
                     data_dir=self.val_data_dir,
                     alignment_dir=self.val_alignment_dir,
+                    embedding_dir=self.val_embedding_dir,
                     mapping_path=None,
                     max_template_hits=self.config.eval.max_template_hits,
                     mode="eval",
@@ -623,6 +700,7 @@ class OpenFoldDataModule(pl.LightningDataModule):
             self.predict_dataset = dataset_gen(
                 data_dir=self.predict_data_dir,
                 alignment_dir=self.predict_alignment_dir,
+                embedding_dir=self.predict_embedding_dir,
                 mapping_path=None,
                 max_template_hits=self.config.predict.max_template_hits,
                 mode="predict",
@@ -636,7 +714,6 @@ class OpenFoldDataModule(pl.LightningDataModule):
         dataset = None
         if(stage == "train"):
             dataset = self.train_dataset
-            
             # Filter the dataset, if necessary
             dataset.reroll()
         elif(stage == "eval"):

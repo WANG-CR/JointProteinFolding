@@ -59,7 +59,7 @@ class Protein:
     # A numebr in {0,1,2,3,4,5,6} indicating whether a residue is within a CDR loop
     # Currently only useful when modeling antibodies
     # CDR H1/2/3: 1, 2, 3        CDR L1/2/3: 4, 5, 6    None: 0
-    loop_flags: np.ndarray  # [num_res]    
+    loop_index: np.ndarray  # [num_res]    
     
     # B-factors, or temperature factors, of each residue (in sq. angstroms units),
     # representing the displacement of the residue from its ground truth mean
@@ -77,16 +77,16 @@ def from_pdb_string(pdb_str: str, chain_id: Optional[str] = None) -> Protein:
     """Takes a PDB string and constructs a Protein object.
 
     WARNING: All non-standard residue types will be converted into UNK. All
-      non-standard atoms will be ignored.
+        non-standard atoms will be ignored.
 
     Args:
-      pdb_str: The contents of the pdb file
-      chain_id: If None, then the pdb file must contain a single chain (which
+        pdb_str: The contents of the pdb file
+        chain_id: If None, then the pdb file must contain a single chain (which
         will be parsed). If chain_id is specified (e.g. A), then only that chain
         is parsed.
 
     Returns:
-      A new `Protein` parsed from the pdb contents.
+        A new `Protein` parsed from the pdb contents.
     """
     pdb_fh = io.StringIO(pdb_str)
     parser = PDBParser(QUIET=True)
@@ -141,7 +141,7 @@ def from_pdb_string(pdb_str: str, chain_id: Optional[str] = None) -> Protein:
     chain_index = np.array([chain_id_mapping[cid] for cid in chain_ids])
 
     # Currently we don't define loop regions in general proteins.
-    loop_flags = np.zeros_like(chain_index)
+    loop_index = np.zeros_like(chain_index)
     
     return Protein(
         atom_positions=np.array(atom_positions),
@@ -149,7 +149,7 @@ def from_pdb_string(pdb_str: str, chain_id: Optional[str] = None) -> Protein:
         aatype=np.array(aatype),
         residue_index=np.array(residue_index),
         chain_index=chain_index,
-        loop_flags=loop_flags,
+        loop_index=loop_index,
         b_factors=np.array(b_factors),
     )
 
@@ -179,7 +179,7 @@ def from_pdb_string_antibody(pdb_str: str, chain_id: Optional[str] = None) -> Pr
     # define constants of 6 cdr loops
     # add 2 anchor nodes at each end
     # https://www.researchgate.net/figure/CDR-definitions-in-Chothia-numbering_tbl1_337735681
-    loop_flags = []
+    loop_index = []
     CDR_H1_RANGE_WITH_ANCHOR = (24, 34) # 1
     CDR_H2_RANGE_WITH_ANCHOR = (50, 58) # 2
     CDR_H3_RANGE_WITH_ANCHOR = (93, 104) # 3
@@ -196,22 +196,22 @@ def from_pdb_string_antibody(pdb_str: str, chain_id: Optional[str] = None) -> Pr
         if chain_id is not None and chain.id != chain_id:
             continue
         for res in chain:
-            loop_flag = 0
+            loop_index_ = 0
             if chain.id == 'H':
                 if is_in_range(res.id[1], CDR_H1_RANGE_WITH_ANCHOR):
-                    loop_flag = 1
+                    loop_index_ = 1
                 elif is_in_range(res.id[1], CDR_H2_RANGE_WITH_ANCHOR):
-                    loop_flag = 2
+                    loop_index_ = 2
                 elif is_in_range(res.id[1], CDR_H3_RANGE_WITH_ANCHOR):
-                    loop_flag = 3
+                    loop_index_ = 3
 
             elif chain.id == 'L':
                 if is_in_range(res.id[1], CDR_L1_RANGE_WITH_ANCHOR):
-                    loop_flag = 4
+                    loop_index_ = 4
                 elif is_in_range(res.id[1], CDR_L2_RANGE_WITH_ANCHOR):
-                    loop_flag = 5
+                    loop_index_ = 5
                 elif is_in_range(res.id[1], CDR_L3_RANGE_WITH_ANCHOR):
-                    loop_flag = 6
+                    loop_index_ = 6
             
             if res.id[2] != ' ':
                 insertion_code_offset += 1
@@ -236,7 +236,7 @@ def from_pdb_string_antibody(pdb_str: str, chain_id: Optional[str] = None) -> Pr
             atom_mask.append(mask)
             residue_index.append(res.id[1] + insertion_code_offset)
             chain_ids.append(chain.id)
-            loop_flags.append(loop_flag)
+            loop_index.append(loop_index_)
             b_factors.append(res_b_factors)
 
 
@@ -251,7 +251,7 @@ def from_pdb_string_antibody(pdb_str: str, chain_id: Optional[str] = None) -> Pr
         aatype=np.array(aatype),
         residue_index=np.array(residue_index),
         chain_index=chain_index,
-        loop_flags=np.array(loop_flags),
+        loop_index=np.array(loop_index),
         b_factors=np.array(b_factors),
     )
 
@@ -312,7 +312,7 @@ def from_proteinnet_string(proteinnet_str: str) -> Protein:
         aatype=aatype,
         residue_index=np.arange(len(aatype)),
         chain_index=np.zeros_like(aatype),
-        loop_flags=np.zeros_like(aatype),
+        loop_index=np.zeros_like(aatype),
         b_factors=None,
     )
 
@@ -420,7 +420,7 @@ def from_prediction(
     result: ModelOutput,
     b_factors: Optional[np.ndarray] = None,
     chain_index: Optional[np.ndarray] = None,
-    loop_flags: Optional[np.ndarray] = None,
+    loop_index: Optional[np.ndarray] = None,
 ) -> Protein:
     """Assembles a protein from a prediction.
 
@@ -436,8 +436,8 @@ def from_prediction(
         b_factors = np.zeros_like(result["final_atom_mask"])
     if chain_index is None:
         chain_index = np.zeros_like(features["aatype"])
-    if loop_flags is None:
-        loop_flags = np.zeros_like(features["aatype"])
+    if loop_index is None:
+        loop_index = np.zeros_like(features["aatype"])
 
     return Protein(
         aatype=features["aatype"],
@@ -445,6 +445,6 @@ def from_prediction(
         atom_mask=result["final_atom_mask"],
         residue_index=features["residue_index"] + 1,
         chain_index=chain_index,
-        loop_flags=loop_flags,
+        loop_index=loop_index,
         b_factors=b_factors,
     )

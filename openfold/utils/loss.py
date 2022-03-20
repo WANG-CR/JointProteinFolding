@@ -43,8 +43,8 @@ def softmax_cross_entropy(logits, labels):
 
 
 def sigmoid_cross_entropy(logits, labels):
-    log_p = torch.log(torch.sigmoid(logits))
-    log_not_p = torch.log(torch.sigmoid(-logits))
+    log_p = torch.nn.functional.logsigmoid(logits)
+    log_not_p = torch.nn.functional.logsigmoid(-logits)
     loss = -labels * log_p - (1 - labels) * log_not_p
     return loss
 
@@ -54,6 +54,8 @@ def torsion_angle_loss(
     a_gt,  # [*, N, 7, 2]
     a_alt_gt,  # [*, N, 7, 2]
 ):
+    """Implements Algorithm 27 (torsionAngleLoss)
+    """
     # [*, N, 7]
     norm = torch.norm(a, dim=-1)
 
@@ -113,13 +115,20 @@ def compute_fape(
     local_pred_pos = pred_frames.invert()[..., None].apply(
         pred_positions[..., None, :, :],
     )
+    # For FP16, if local_target_pos > 256, it is likely we have inf / nan for the FAPE loss
     local_target_pos = target_frames.invert()[..., None].apply(
         target_positions[..., None, :, :],
     )
 
+    # FP16 friendly L2 norm computation
+    local_pos_diff = local_pred_pos - local_target_pos
+    current_scale = local_pos_diff.abs().max().detach().item()
+    max_scale = (torch.finfo(local_pos_diff.dtype).max * 0.4) ** 0.5
+    rescale = max(current_scale / max_scale, 1)
+    
     error_dist = torch.sqrt(
-        torch.sum((local_pred_pos - local_target_pos) ** 2, dim=-1) + eps
-    )
+        torch.sum((local_pos_diff / rescale) ** 2, dim=-1) + eps
+    ) * rescale
 
     if l1_clamp_distance is not None:
         error_dist = torch.clamp(error_dist, min=0, max=l1_clamp_distance)
@@ -226,13 +235,13 @@ def sidechain_loss(
     ] * rigidgroups_alt_gt_frames
 
     # Steamroll the inputs
-    sidechain_frames = sidechain_frames[-1]
-    batch_dims = sidechain_frames.shape[:-4]
-    sidechain_frames = sidechain_frames.view(*batch_dims, -1, 4, 4)
+    sidechain_frames = sidechain_frames[-1] # [traj, *, N, 8, 4, 4] --> # [*, N, 8, 4, 4]
+    batch_dims = sidechain_frames.shape[:-4] # [*]
+    sidechain_frames = sidechain_frames.view(*batch_dims, -1, 4, 4) # [*, N * 8, 4, 4]
     sidechain_frames = Rigid.from_tensor_4x4(sidechain_frames)
-    renamed_gt_frames = renamed_gt_frames.view(*batch_dims, -1, 4, 4)
+    renamed_gt_frames = renamed_gt_frames.view(*batch_dims, -1, 4, 4) # [*, N * 8, 4, 4]
     renamed_gt_frames = Rigid.from_tensor_4x4(renamed_gt_frames)
-    rigidgroups_gt_exists = rigidgroups_gt_exists.reshape(*batch_dims, -1)
+    rigidgroups_gt_exists = rigidgroups_gt_exists.reshape(*batch_dims, -1) # [*, N * 8]
     sidechain_atom_pos = sidechain_atom_pos[-1]
     sidechain_atom_pos = sidechain_atom_pos.view(*batch_dims, -1, 3)
     renamed_atom14_gt_positions = renamed_atom14_gt_positions.view(
@@ -304,9 +313,9 @@ def supervised_chi_loss(
             seq_mask:
                 [*, N] sequence mask
             chi_mask:
-                [*, N, 7] angle mask
+                [*, N, 4] angle mask
             chi_angles_sin_cos:
-                [*, N, 7, 2] ground truth angles
+                [*, N, 4, 2] ground truth angles
             chi_weight:
                 Weight for the angle component of the loss
             angle_norm_weight:
@@ -314,17 +323,18 @@ def supervised_chi_loss(
         Returns:
             [*] loss tensor
     """
-    pred_angles = angles_sin_cos[..., 3:, :]
+    pred_angles = angles_sin_cos[..., 3:, :] # [*, N, 4, 2]
     residue_type_one_hot = torch.nn.functional.one_hot(
         aatype,
         residue_constants.restype_num + 1,
     )
+    # [*, N, 4]
     chi_pi_periodic = torch.einsum(
         "...ij,jk->ik",
         residue_type_one_hot.type(angles_sin_cos.dtype),
         angles_sin_cos.new_tensor(residue_constants.chi_pi_periodic),
     )
-
+    # add traj dimension
     true_chi = chi_angles_sin_cos[None]
 
     shifted_mask = (1 - 2 * chi_pi_periodic).unsqueeze(-1)
@@ -334,7 +344,7 @@ def supervised_chi_loss(
         (true_chi_shifted - pred_angles) ** 2, dim=-1
     )
     sq_chi_error = torch.minimum(sq_chi_error, sq_chi_error_shifted)
-    # The ol' switcheroo
+    # The ol' switcheroo, put the traj dimension to the third to the last
     sq_chi_error = sq_chi_error.permute(
         *range(len(sq_chi_error.shape))[1:-2], 0, -2, -1
     )
@@ -344,16 +354,31 @@ def supervised_chi_loss(
 
     loss = chi_weight * sq_chi_loss
 
+    # FP16 friendly L2 norm computation
+    current_scale = unnormalized_angles_sin_cos.abs().max().detach().item()
+    max_scale = (torch.finfo(unnormalized_angles_sin_cos.dtype).max * 0.8) ** 0.5
+    rescale = max(current_scale / max_scale, 1)    
     angle_norm = torch.sqrt(
-        torch.sum(unnormalized_angles_sin_cos ** 2, dim=-1) + eps
-    )
+        torch.sum((unnormalized_angles_sin_cos / rescale) ** 2, dim=-1) + eps
+    ) * rescale
     norm_error = torch.abs(angle_norm - 1.0)
     norm_error = norm_error.permute(
         *range(len(norm_error.shape))[1:-2], 0, -2, -1
     )
-    angle_norm_loss = masked_mean(
-        seq_mask[..., None, :, None], norm_error, dim=(-1, -2, -3)
-    )
+
+    # angle_norm_loss = masked_mean(
+    #     seq_mask[..., None, :, None], norm_error * 0.01, dim=(-1, -2, -3)
+    # ) * 100.0
+    # FP16-friendly sum. Equivalent to:
+    # angle_norm_loss = masked_mean(
+    #     seq_mask[..., None, :, None], norm_error, dim=(-1, -2, -3)
+    # )
+    seq_mask = seq_mask[..., None, :, None].expand(*norm_error.shape)
+    denom = eps + torch.sum(seq_mask, dim=(-1, -2, -3)) # [*, ]
+    angle_norm_loss = norm_error * seq_mask # [*, 8 * 3, N, 7]
+    angle_norm_loss = torch.sum(angle_norm_loss, dim=(-1, -2)) # [*, 8 * 3]
+    angle_norm_loss = angle_norm_loss / denom[..., None] # [*, 8 * 3]
+    angle_norm_loss = torch.sum(angle_norm_loss, dim=-1)
 
     loss = loss + angle_norm_weight * angle_norm_loss
 
@@ -385,6 +410,9 @@ def lddt(
     eps: float = 1e-10,
     per_residue: bool = True,
 ) -> torch.Tensor:
+    """Implementation of local distance difference test (LDDT)
+    See https://mp.weixin.qq.com/s/6KGsazYa5MXtCTkwaogBjA
+    """
     n = all_atom_mask.shape[-2]
     dmat_true = torch.sqrt(
         eps

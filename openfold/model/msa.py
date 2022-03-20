@@ -331,7 +331,7 @@ class MSAColumnGlobalAttention(nn.Module):
         self.inf = inf
         self.eps = eps
 
-        self.layer_norm_m = nn.LayerNorm(c_in)
+        self.layer_norm_m = LayerNorm(c_in)
 
         self.global_attention = GlobalAttention(
             c_in=c_in,

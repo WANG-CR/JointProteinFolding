@@ -16,6 +16,7 @@
 import torch
 import torch.nn as nn
 from typing import Tuple
+import ml_collections as mlc
 
 from openfold.model.primitives import Linear, LayerNorm
 from openfold.utils.tensor_utils import one_hot
@@ -35,6 +36,7 @@ class InputEmbedder(nn.Module):
         c_z: int,
         c_m: int,
         relpos_k: int,
+        residue_emb_cfg: mlc.ConfigDict,
         **kwargs,
     ):
         """
@@ -57,11 +59,25 @@ class InputEmbedder(nn.Module):
 
         self.c_z = c_z
         self.c_m = c_m
+        self.residue_emb_cfg = residue_emb_cfg
 
         self.linear_tf_z_i = Linear(tf_dim, c_z)
         self.linear_tf_z_j = Linear(tf_dim, c_z)
         self.linear_tf_m = Linear(tf_dim, c_m)
         self.linear_msa_m = Linear(msa_dim, c_m)
+
+        # residue_emb enabled
+        if self.residue_emb_cfg["enabled"]:
+            if self.residue_emb_cfg["usage"] != "msa":
+                emb_input_dim = self.residue_emb_cfg["c_emb"] * self.residue_emb_cfg["num_emb_feats"]
+                self.linear_emb_m = Linear(emb_input_dim, c_m)
+                self.linear_emb_z_i = Linear(emb_input_dim, c_z)
+                self.linear_emb_z_j = Linear(emb_input_dim, c_z)
+            else: # msa case
+                emb_input_dim = self.residue_emb_cfg["c_emb"]
+                self.linear_emb_m = nn.ModuleList(
+                    [Linear(emb_input_dim, c_m) for i in range(self.residue_emb_cfg["num_emb_feats"])]
+                )
 
         # RPE stuff
         self.relpos_k = relpos_k
@@ -90,6 +106,7 @@ class InputEmbedder(nn.Module):
         tf: torch.Tensor,
         ri: torch.Tensor,
         msa: torch.Tensor,
+        emb: torch.Tensor,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Args:
@@ -99,17 +116,74 @@ class InputEmbedder(nn.Module):
                 "residue_index" features of shape [*, N_res]
             msa:
                 "msa_feat" features of shape [*, N_clust, N_res, msa_dim]
+            emb:
+                "residue_emb" features of shape [*, N_model, N_res, emb_dim] from pre-trained language models.
         Returns:
             msa_emb:
                 [*, N_clust, N_res, C_m] MSA embedding
             pair_emb:
                 [*, N_res, N_res, C_z] pair embedding
+            residue_emb:
+                [*, N_res, C_m] or [*, N_model, N_res, c_m], updated residue embedding
 
         """
         # [*, N_res, c_z]
         tf_emb_i = self.linear_tf_z_i(tf)
         tf_emb_j = self.linear_tf_z_j(tf)
 
+        # [*, N_res, c_m]
+        tf_m = self.linear_tf_m(tf)
+        
+        residue_emb_m = None
+        
+        # residue_emb enabled        
+        if self.residue_emb_cfg["enabled"]:
+            # initialize functions to digest pre-trained residue embeddings
+            fn_cat = lambda i, j, emb_z_i, emb_z_j, m, emb_m: (i + emb_z_i, j + emb_z_j, m + emb_m)
+            fn_replace = lambda i, j, emb_z_i, emb_z_j, m, emb_m: (emb_z_i, emb_z_j, emb_m)
+            fn_msa = lambda i, j, emb_z_i, emb_z_j, m, emb_m: (i, j, m)
+            fn_dict = {
+                "cat": fn_cat,
+                "replace": fn_replace,
+                "msa": fn_msa
+            }
+
+            emb = torch.unbind(emb, dim=-3) # [[*, N_res, emb_dim]...]
+            if len(emb) != self.residue_emb_cfg["num_emb_feats"]:
+                raise ValueError(
+                    f"""
+                     The number of residue embedding {len(emb)} 
+                     does not match the config {self.residue_emb_cfg["num_emb_feats"]}
+                     """
+                )
+
+            if self.residue_emb_cfg["usage"] != "msa":          
+                emb = torch.cat(emb, dim=-1) # [*, N_res, emb_dim * N_model]
+                
+                residue_emb_z_i = self.linear_emb_z_i(emb) # [*, N_res, c_z]
+                residue_emb_z_j = self.linear_emb_z_j(emb) # [*, N_res, c_z]
+                residue_emb_m = self.linear_emb_m(emb) # [*, N_res, c_m]
+            
+            else:
+                residue_emb_z_i = None
+                residue_emb_z_j = None
+                
+                # [[*, N_res, emb_dim]...]
+                # Warning: Note that this operation is order-sensitve!
+                per_model_residue_emb = []
+                for i, layer in enumerate(self.linear_emb_m):
+                    per_model_residue_emb.append(layer(emb[i]))
+                    
+                # [*, N_model, N_res, c_m]
+                residue_emb_m = torch.stack(per_model_residue_emb, dim=-3)
+              
+            tf_emb_i, tf_emb_j, tf_m = fn_dict[self.residue_emb_cfg["usage"]](
+                tf_emb_i, tf_emb_j, 
+                residue_emb_z_i, residue_emb_z_j,
+                tf_m, residue_emb_m
+            )
+            
+                    
         # [*, N_res, N_res, c_z]
         pair_emb = tf_emb_i[..., None, :] + tf_emb_j[..., None, :, :]
         pair_emb = pair_emb + self.relpos(ri.type(pair_emb.dtype))
@@ -117,13 +191,97 @@ class InputEmbedder(nn.Module):
         # [*, N_clust, N_res, c_m]
         n_clust = msa.shape[-3]
         tf_m = (
-            self.linear_tf_m(tf)
+            tf_m
             .unsqueeze(-3)
             .expand(((-1,) * len(tf.shape[:-2]) + (n_clust, -1, -1)))
         )
         msa_emb = self.linear_msa_m(msa) + tf_m
 
         return msa_emb, pair_emb
+
+
+class Ca_Aware_Embedder(nn.Module):
+    """
+    Embeds the output structure of a structure block to bias the attention map.
+
+    Adapted from Algorithm 32.
+    """
+
+    def __init__(
+        self,
+        c_z: int,
+        min_bin: float,
+        max_bin: float,
+        no_bins: int,
+        inf: float = 1e8,
+        **kwargs,
+    ):
+        """
+        Args:
+            c_z:
+                Pair embedding channel dimension
+            min_bin:
+                Smallest distogram bin (Angstroms)
+            max_bin:
+                Largest distogram bin (Angstroms)
+            no_bins:
+                Number of distogram bins
+        """
+        super(Ca_Aware_Embedder, self).__init__()
+
+        self.c_z = c_z
+        self.min_bin = min_bin
+        self.max_bin = max_bin
+        self.no_bins = no_bins
+        self.inf = inf
+
+        self.bins = None
+
+        self.linear = Linear(self.no_bins, self.c_z)
+
+    def forward(
+        self,
+        x: torch.Tensor,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Args:
+            x:
+                [*, N_res, 3] predicted C_alpha coordinates
+        Returns:
+            z:
+                [*, N_res, N_res, C_z] pair embedding update
+        """
+        if self.bins is None:
+            self.bins = torch.linspace(
+                self.min_bin,
+                self.max_bin,
+                self.no_bins,
+                dtype=x.dtype,
+                device=x.device,
+                requires_grad=False,
+            )
+
+        # This squared method might become problematic in FP16 mode.
+        # I'm using it because my homegrown method had a stubborn discrepancy I
+        # couldn't find in time.
+        squared_bins = self.bins ** 2
+        upper = torch.cat(
+            [squared_bins[1:], squared_bins.new_tensor([self.inf])], dim=-1
+        )
+        
+        # [*, N_res, N_res, 1]
+        d = torch.sum(
+            (x[..., None, :] - x[..., None, :, :]) ** 2, dim=-1, keepdims=True
+        )
+
+        # [*, N, N, no_bins]
+        d = ((d > squared_bins) * (d < upper)).type(x.dtype)
+
+        # [*, N, N, C_z]
+        d = self.linear(d)
+        z_update = d
+
+        return z_update
 
 
 class RecyclingEmbedder(nn.Module):
