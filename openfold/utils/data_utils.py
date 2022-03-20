@@ -57,17 +57,47 @@ def pdb2fasta(fname, idx, data_dir):
         ret.append(_string_index_select(seq, protein_object.chain_index==0))
         ret.append(f">{basename}_L")
         ret.append(_string_index_select(seq, protein_object.chain_index==1))
-                
-    elif ext == '.fasta':
-        with open(fpath, 'r') as f:
-            fasta_str = f.read()        
-        input_seqs, input_descs = parsers.parse_fasta(fasta_str)
-        seq = input_seqs[0] + input_seqs[1]
-        ret.append(f">{basename}")
-        ret.append(seq)             
+           
     else:
         raise ValueError(f'ext is invalid, should be either pdb of fasta, found {ext}')
     return ret, basename
+
+
+def fastas2fasta(data_dir, mode=-1):
+    """merge fastas in a directory into a single fasta
+    mode: format of the output fasta
+        mode==-1: deepab's format: e.g.,
+            >1ay1_H
+            EVQLQESGPGLVKPYQSLSLSCTVTGYSITSDYAWNWIRQFPGNKLEWMGYITYSGTTDYNPSLKSRISITRDTSKNQFFLQLNSVTTEDTATYYCARYYYGYWYFDVWGQGTTLTVS
+            >1ay1_L
+            DIQMTQSPAIMSASPGEKVTMTCSASSSVSYMYWYQQKPGSSPRLLIYDSTNLASGVPVRFSGSGSGTSYSLTISRMEAEDAATYYCQQWSTYPLTFGAGTKLELKRA
+        mode>=0: 2-line fasta, with ``mode'' unknown residues (X) inserted between heavy ang light chains.
+            e.g., mode=10
+            >5ggu
+            QVQLVESGGGVVQPGRSLRLSCAASGFTFSSYGMHWVRQAPGKGLEWVAVIWYDGSNKYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYCARDPRGATLYYYYYGMDVWGQGTTVTVS\
+            XXXXXXXXXX
+            DIQMTQSPSSLSASVGDRVTITCRASQSINSYLDWYQQKPGKAPKLLIYAASSLQSGVPSRFSGSGSGTDFTLTISSLQPEDFATYYCQQYYSTPFTFGPGTKVEIKRT
+    """
+    fnames = [x for x in os.listdir(data_dir) if x.endswith('.fasta')]
+    fastas = []
+    for fname in fnames:
+        fpath = os.path.join(data_dir, fname)
+        basename, ext = os.path.splitext(fname)
+        with open(fpath, 'r') as f:
+            fasta_str = f.read()
+        input_seqs, input_descs = parsers.parse_fasta(fasta_str)
+        if mode >= 0:
+            assert len(input_seqs) == 2
+            seq = input_seqs[0] + 'X' * mode + input_seqs[1]
+            fastas.append(f">{basename}_cat{mode}x")
+            fastas.append(seq)
+        elif mode == -1:
+            for (seq, desc) in zip(input_seqs, input_descs):
+                fastas.append(f">{desc}")
+                fastas.append(seq)
+        else:
+            raise ValueError(f"unsupported mode: {mode}!")
+    return fastas
 
         
 def main(args):

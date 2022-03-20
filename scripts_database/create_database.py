@@ -33,6 +33,32 @@ from functools import partial
 from openfold.utils import data_utils
 
 
+def parse_sabdab_summary(file_name):
+    """
+    SAbDab produces a rather unique summary file.
+    This function reads that file into a dict with the key being the
+    4-letter PDB code.
+    
+    dict[pdb] = {col1 : value, col2: value, ...}
+    """
+    sabdab_dict = {}
+
+    with open(file_name, "r") as f:
+        # first line is the header, or all the keys in our sub-dict
+        header = f.readline().strip().split("\t")
+        # next lines are data
+        for line in f.readlines():
+            split_line = line.strip().split("\t")
+            td = {}  # temporary dict of key value pairs for one pdb
+            for k, v in zip(header[1:], split_line[1:]):
+                # pdb id is first, so we skip that for now
+                td[k] = v
+            # add temporary dict to sabdab dict at the pdb id
+            sabdab_dict[split_line[0]] = td
+
+    return sabdab_dict
+
+
 def download_file(url, output_path):
     with open(output_path, 'w') as f:
         f.write(requests.get(url).content.decode("utf-8"))
@@ -154,31 +180,6 @@ def download_sabdab_summary_file(
     )
     download_file(summary_file_url, summary_path)
     return summary_path
-
-def parse_sabdab_summary(file_name):
-    """
-    SAbDab produces a rather unique summary file.
-    This function reads that file into a dict with the key being the
-    4-letter PDB code.
-    
-    dict[pdb] = {col1 : value, col2: value, ...}
-    """
-    sabdab_dict = {}
-
-    with open(file_name, "r") as f:
-        # first line is the header, or all the keys in our sub-dict
-        header = f.readline().strip().split("\t")
-        # next lines are data
-        for line in f.readlines():
-            split_line = line.strip().split("\t")
-            td = {}  # temporary dict of key value pairs for one pdb
-            for k, v in zip(header[1:], split_line[1:]):
-                # pdb id is first, so we skip that for now
-                td[k] = v
-            # add temporary dict to sabdab dict at the pdb id
-            sabdab_dict[split_line[0]] = td
-
-    return sabdab_dict
 
 
 def _get_HL_chains(pdb_path):
@@ -484,6 +485,14 @@ def main(args):
             sabdab_summary_path=None,
             ignore_same_VL_VH_chains=args.paired,
         )
+    # 8. remove the download file
+    if os.path.exists(args.download_dir):
+        try:
+            os.rmdir(args.download_dir)
+        except:
+            logging.warning(
+                f"the download directory: {args.download_dir} is not empty!"
+            )
 
 
 def bool_type(bool_str: str):
