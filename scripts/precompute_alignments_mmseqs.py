@@ -98,11 +98,10 @@ def main(args):
         # Clean up temporary files
         os.remove(chunk_fasta_path)
 
-
-    hhsearch_pdb70_runner = hhsearch.HHSearch(
-        binary_path=args.hhsearch_binary_path, databases=[args.pdb70]
-    )
-
+    if args.hhsearch_binary_path is not None:
+        hhsearch_pdb70_runner = hhsearch.HHSearch(
+            binary_path=args.hhsearch_binary_path, databases=[args.pdb70]
+        )
 
     for d in os.listdir(args.output_dir):
         dpath = os.path.join(args.output_dir, d)

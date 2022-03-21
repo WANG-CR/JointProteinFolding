@@ -1,5 +1,6 @@
 import argparse
 import logging
+logging.basicConfig(level=logging.INFO)
 import os
 
 #os.environ["CUDA_VISIBLE_DEVICES"] = "0"
@@ -44,6 +45,9 @@ from openfold.utils.validation_metrics import (
 from scripts.zero_to_fp32 import (
     get_fp32_state_dict_from_zero_checkpoint
 )
+# from scripts.zero_to_fp32_issue1422 import (
+#     get_fp32_state_dict_from_zero_checkpoint
+# )
 
 from openfold.utils.logger import PerformanceLoggingCallback
 
@@ -459,7 +463,19 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--script_modules", type=bool_type, default=False,
-        help="Whether to TorchScript eligible components of them model"
+        help="Whether to TorchScript eligible components of the model"
+    )
+    parser.add_argument(
+        "--train_embedding_dir", type=str, default=None,
+        help="Directory containing pre-trained training residue embeddings"
+    )
+    parser.add_argument(
+        "--distillation_embedding_dir", type=str, default=None,
+        help="Directory containing pre-trained distillation residue embeddings"
+    )
+    parser.add_argument(
+        "--val_embedding_dir", type=str, default=None,
+        help="Directory containing pre-trained validation residue embeddings"
     )
     parser.add_argument(
         "--train_chain_data_cache_path", type=str, default=None,

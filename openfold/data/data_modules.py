@@ -225,6 +225,7 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
                 )
             elif(os.path.exists(path + ".pdb")):
                 resolution = self.resolution.get(file_id, 0)
+                print(resolution)
                 data = self.data_pipeline.process_pdb(
                     pdb_path=path + ".pdb",
                     alignment_dir=alignment_dir,
