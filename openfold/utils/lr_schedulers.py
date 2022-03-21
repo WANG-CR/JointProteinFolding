@@ -3,7 +3,7 @@ import torch
 
 class AlphaFoldLRScheduler(torch.optim.lr_scheduler._LRScheduler):
     """ Implements the learning rate schedule defined in the AlphaFold 2
-        supplement. A linear warmup is followed by a plateau at the maximum
+        supplement (Section 1.11.3). A linear warmup is followed by a plateau at the maximum
         learning rate and then exponential decay.
          
         Note that the initial learning rate of the optimizer in question is 
@@ -20,6 +20,7 @@ class AlphaFoldLRScheduler(torch.optim.lr_scheduler._LRScheduler):
         start_decay_after_n_steps: int = 10000,
         decay_every_n_steps: int = 50000,
         decay_factor: float = 0.95,
+        **kwargs,
     ):
         step_counts = {
             "warmup_no_steps": warmup_no_steps,
@@ -78,5 +79,4 @@ class AlphaFoldLRScheduler(torch.optim.lr_scheduler._LRScheduler):
             lr = self.max_lr * (self.decay_factor ** exp)
         else: # plateau
             lr = self.max_lr
-
         return [lr for group in self.optimizer.param_groups]

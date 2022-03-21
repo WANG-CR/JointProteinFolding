@@ -15,6 +15,13 @@ def model_config(name, train=False, low_prec=False):
     if name == "initial_training":
         # AF2 Suppl. Table 4, "initial training" setting
         pass
+    #**********************biofold**********************#
+    elif name == "vanilla":
+        c.model.evoformer_stack.no_blocks = 8
+        c.model.structure_module.no_blocks = 8
+        c.model.template.enabled = False
+        c.model.extra_msa.enabled = False
+    #**********************biofold**********************#
     elif name == "finetuning":
         # AF2 Suppl. Table 4, "finetuning" setting
         c.data.common.max_extra_msa = 5120
@@ -293,6 +300,16 @@ config = mlc.ConfigDict(
             "c_s": c_s,
             "eps": eps,
             "low_prec": False,
+        },
+        "optimizer": {
+            "lr": 0.001,
+            "eps": 1e-5,
+        },
+        "scheduler": {
+            "warmup_no_steps": 1000,
+            "start_decay_after_n_steps": 10000,
+            "decay_every_n_steps": 50000,
+            "decay_factor": 0.95,
         },
         "model": {
             "_mask_trans": False,

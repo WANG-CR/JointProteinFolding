@@ -128,6 +128,7 @@ class InputEmbedder(nn.Module):
 
         """
         # [*, N_res, c_z]
+        #print(tf.dtype)
         tf_emb_i = self.linear_tf_z_i(tf)
         tf_emb_j = self.linear_tf_z_j(tf)
 

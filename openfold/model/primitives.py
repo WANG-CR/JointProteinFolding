@@ -177,6 +177,7 @@ class LayerNorm(nn.Module):
         self.weight = nn.Parameter(torch.ones(c_in))
         self.bias = nn.Parameter(torch.zeros(c_in))
 
+    @torch.jit.ignore
     def forward(self, x): 
         d = x.dtype
         if(d is torch.bfloat16 and not deepspeed.utils.is_initialized()):
@@ -198,6 +199,7 @@ class LayerNorm(nn.Module):
             )
 
         return out
+
 
 @torch.jit.ignore
 def softmax(t: torch.Tensor, dim: int = -1) -> torch.Tensor:
@@ -528,9 +530,13 @@ def _lma(
     k: torch.Tensor, 
     v: torch.Tensor, 
     biases: List[torch.Tensor], 
-    q_chunk_size: int, 
-    kv_chunk_size: int,
+    q_chunk_size: Optional[int], 
+    kv_chunk_size: Optional[int],
 ):
+    if(q_chunk_size is None or kv_chunk_size is None):
+        raise ValueError(
+            "q_chunk_size and kv_chunk_size must be provided"
+        )
     no_q, no_kv = q.shape[-3], k.shape[-3]
 
     # [*, Q, H, C_hidden]

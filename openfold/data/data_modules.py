@@ -225,7 +225,6 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
                 )
             elif(os.path.exists(path + ".pdb")):
                 resolution = self.resolution.get(file_id, 0)
-                print(resolution)
                 data = self.data_pipeline.process_pdb(
                     pdb_path=path + ".pdb",
                     alignment_dir=alignment_dir,
@@ -382,9 +381,9 @@ class OpenFoldDataset(torch.utils.data.Dataset):
                     torch.tensor(weights),
                     num_samples=1,
                     generator=self.generator,
-                )
+                ) # [max_cache_len, 2]
                 # [max_cache_len, ], flags for acceptance
-                samples = samples.squeeze()
+                samples = samples.squeeze(-1)
 
                 cache = [i for i, s in zip(idx, samples) if s]
 
@@ -680,7 +679,7 @@ class OpenFoldDataModule(pl.LightningDataModule):
                 chain_data_cache_paths = [
                     self.train_chain_data_cache_path,
                 ]
-            train_epoch_len = self.train_epoch_len or sum([_.len() for _ in datasets])
+            train_epoch_len = self.train_epoch_len or sum([len(_) for _ in datasets])
             self.train_dataset = OpenFoldDataset(
                 datasets=datasets,
                 probabilities=probabilities,

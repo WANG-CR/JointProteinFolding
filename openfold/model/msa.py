@@ -99,7 +99,7 @@ class MSAAttention(nn.Module):
         m: torch.Tensor,
         z: Optional[torch.Tensor],
         mask: Optional[torch.Tensor]
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
         # [*, N_seq, N_res, C_m]
         m = self.layer_norm_m(m)
 
@@ -142,7 +142,7 @@ class MSAAttention(nn.Module):
         z: Optional[torch.Tensor],
         mask: Optional[torch.Tensor],
         chunk_logits: int,
-        checkpoint: bool,
+        checkpoint: Optional[bool],
     ) -> torch.Tensor:
         MSA_DIM = -4
 
