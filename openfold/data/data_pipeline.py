@@ -149,6 +149,7 @@ def _aatype_to_str_sequence(aatype):
 def make_protein_features(
     protein_object: protein.Protein, 
     description: str,
+    normalize_coordinates: bool = False,
     _is_distillation: bool = False,
 ) -> FeatureDict:
     pdb_feats = {}
@@ -167,8 +168,11 @@ def make_protein_features(
         )
     )
 
-    all_atom_positions = protein_object.atom_positions
-    all_atom_mask = protein_object.atom_mask
+    all_atom_positions = protein_object.atom_positions # [num_res, num_atom_type, 3]
+    all_atom_mask = protein_object.atom_mask # [num_res, num_atom_type]
+    if normalize_coordinates:
+        xyz_mean = np.sum(all_atom_positions, (0, 1), keepdims=True) / np.sum(all_atom_mask)
+        all_atom_positions = all_atom_positions - xyz_mean
 
     pdb_feats["all_atom_positions"] = all_atom_positions.astype(np.float32)
     pdb_feats["all_atom_mask"] = all_atom_mask.astype(np.float32)
@@ -191,6 +195,7 @@ def make_pdb_features(
     pdb_feats = make_protein_features(
         protein_object,
         description,
+        normalize_coordinates=True,
         _is_distillation=is_distillation,
     )
 

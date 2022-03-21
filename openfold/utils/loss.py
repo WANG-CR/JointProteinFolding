@@ -115,12 +115,10 @@ def compute_fape(
     local_pred_pos = pred_frames.invert()[..., None].apply(
         pred_positions[..., None, :, :],
     )
-    assert not torch.isnan(local_pred_pos).any() and not torch.isinf(local_pred_pos).any()
     # For FP16, if local_target_pos > 256, it is likely we have inf / nan for the FAPE loss
     local_target_pos = target_frames.invert()[..., None].apply(
         target_positions[..., None, :, :],
     )
-    assert not torch.isnan(local_target_pos).any() and not torch.isinf(local_target_pos).any()
 
     # FP16 friendly L2 norm computation
     local_pos_diff = local_pred_pos - local_target_pos
@@ -131,7 +129,6 @@ def compute_fape(
     error_dist = torch.sqrt(
         torch.sum((local_pos_diff / rescale) ** 2, dim=-1) + eps
     ) * rescale
-    assert not torch.isnan(error_dist).any() and not torch.isinf(error_dist).any()
     if l1_clamp_distance is not None:
         error_dist = torch.clamp(error_dist, min=0, max=l1_clamp_distance)
 
@@ -548,10 +545,7 @@ def distogram_loss(
     eps=1e-6,
     **kwargs,
 ):
-    assert not torch.isnan(logits).any() and not torch.isinf(logits).any()
-    assert not torch.isnan(pseudo_beta).any() and not torch.isinf(pseudo_beta).any()
-    assert not torch.isnan(pseudo_beta_mask).any() and not torch.isinf(pseudo_beta_mask).any()
-    
+
     boundaries = torch.linspace(
         min_bin,
         max_bin,
@@ -565,8 +559,9 @@ def distogram_loss(
         dim=-1,
         keepdims=True,
     )
-    assert not torch.isnan(dists).any() and not torch.isinf(dists).any()
     
+    # it's ok to have inf in dists here.
+    # assert not torch.isnan(dists).any() and not torch.isinf(dists).any()
 
     true_bins = torch.sum(dists > boundaries, dim=-1)
 
@@ -585,7 +580,6 @@ def distogram_loss(
     mean = torch.sum(mean, dim=-1)
     mean = mean / denom[..., None]
     mean = torch.sum(mean, dim=-1)
-    assert not torch.isnan(mean).any() and not torch.isinf(mean).any()
 
     # Average over the batch dimensions
     mean = torch.mean(mean)
@@ -1651,22 +1645,19 @@ class AlphaFoldLoss(nn.Module):
             
             if weight > 0:
                 loss = loss_fn()
-                #print(f'calculating {loss_name}: {weight}')
                 if(torch.isnan(loss) or torch.isinf(loss)):
                     logging.warning(f"{loss_name} loss is NaN. Skipping...")
-                    logging.warning(f"nan:{torch.isnan(loss)}, inf:{torch.isinf(loss)}")
                     loss = loss.new_tensor(0., requires_grad=True)
                 cum_loss = cum_loss + weight * loss
                 losses[loss_name] = loss.detach().clone()
-                #print(f"{loss_name}: {losses[loss_name]}")
 
         losses["unscaled_loss"] = cum_loss.detach().clone()
 
         # Scale the loss by the square root of the minimum of the crop size and
         # the (average) sequence length. See subsection 1.9.
-        seq_len = torch.mean(batch["seq_length"].float())
-        crop_len = batch["aatype"].shape[-1]
-        cum_loss = cum_loss * torch.sqrt(min(seq_len, crop_len))
+        # seq_len = torch.mean(batch["seq_length"].float())
+        # crop_len = batch["aatype"].shape[-1]
+        # cum_loss = cum_loss * torch.sqrt(min(seq_len, crop_len))
 
         losses["loss"] = cum_loss.detach().clone()
 

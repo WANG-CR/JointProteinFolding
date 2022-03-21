@@ -103,7 +103,6 @@ class OpenFoldWrapper(pl.LightningModule):
         
         # Remove the recycling dimension
         batch = tensor_tree_map(lambda t: t[..., -1], batch)
-
         # Compute loss
         loss, loss_breakdown = self.loss(
             outputs, batch, _return_breakdown=True
@@ -111,7 +110,6 @@ class OpenFoldWrapper(pl.LightningModule):
 
         # Log it
         self._log(loss_breakdown, batch, outputs)
-        print(loss)
         return loss
 
     def on_before_zero_grad(self, *args, **kwargs):
@@ -224,7 +222,6 @@ class OpenFoldWrapper(pl.LightningModule):
                 # `scheduler.step()`. 1 corresponds to updating the learning
                 # rate after every epoch/step.
                 "frequency": 1,
-                "monitor": "val/loss", # shouldn't it be val/loss?
                 "name": "AlphaFoldLRScheduler",
             }
         }
@@ -314,6 +311,8 @@ def main(args):
             **{"entity": args.wandb_entity}
         )
         loggers.append(wdb_logger)
+        if not os.path.exists(os.path.join(args.output_dir, "wandb")):
+            os.makedirs(os.path.join(args.output_dir, "wandb"), exist_ok=True)
 
     if(args.deepspeed_config_path is not None):
         strategy = DeepSpeedPlugin(
@@ -333,7 +332,7 @@ def main(args):
         strategy=strategy,
         callbacks=callbacks,
         logger=loggers,
-        log_every_n_steps=1,
+        log_every_n_steps=50,
         max_epochs=1000,
     )
 
