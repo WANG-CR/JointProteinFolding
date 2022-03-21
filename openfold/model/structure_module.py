@@ -140,12 +140,19 @@ class AngleResnet(nn.Module):
         s = s.view(s.shape[:-1] + (-1, 2))
 
         unnormalized_s = s
+        
+        # FP16 friendly L2 norm computation
+        current_scale = s.abs().max().detach().item()
+        max_scale = (torch.finfo(s.dtype).max * 0.9) ** 0.5
+        rescale = max(current_scale / max_scale, 1)
+        
         norm_denom = torch.sqrt(
             torch.clamp(
-                torch.sum(s ** 2, dim=-1, keepdim=True),
+                torch.sum((s / rescale) ** 2, dim=-1, keepdim=True),
                 min=self.eps,
             )
-        )
+        ) * rescale
+
         s = s / norm_denom
 
         return unnormalized_s, s
@@ -298,8 +305,8 @@ class InvariantPointAttention(nn.Module):
             permute_final_dims(q, (1, 0, 2)),  # [*, H, N_res, C_hidden]
             permute_final_dims(k, (1, 2, 0)),  # [*, H, C_hidden, N_res]
         )
-        a *= math.sqrt(1.0 / (3 * self.c_hidden))
-        a += (math.sqrt(1.0 / 3) * permute_final_dims(b, (2, 0, 1)))
+        a = a * math.sqrt(1.0 / (3 * self.c_hidden))
+        a = a + (math.sqrt(1.0 / 3) * permute_final_dims(b, (2, 0, 1)))
 
         # [*, N_res, N_res, H, P_q, 3]
         pt_att = q_pts.unsqueeze(-4) - k_pts.unsqueeze(-5)
@@ -323,7 +330,7 @@ class InvariantPointAttention(nn.Module):
 
         # [*, H, N_res, N_res]
         pt_att = permute_final_dims(pt_att, (2, 0, 1))
-        a = a + pt_att 
+        a = a + pt_att
         a = a + square_mask.unsqueeze(-3)
         a = self.softmax(a)
 
@@ -343,8 +350,8 @@ class InvariantPointAttention(nn.Module):
         # [*, H, 3, N_res, P_v]
         o_pt = torch.sum(
             (
-                a[..., None, :, :, None]
-                * permute_final_dims(v_pts, (1, 3, 0, 2))[..., None, :, :]
+                a[..., None, :, :, None] # [*, H, 1, N_res, N_res, 1]
+                * permute_final_dims(v_pts, (1, 3, 0, 2))[..., None, :, :] # [*, H, 3, 1, N_res, P_v]
             ),
             dim=-2,
         )

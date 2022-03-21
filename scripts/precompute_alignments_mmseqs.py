@@ -117,10 +117,11 @@ def main(args):
             with open(fpath, "r") as fp:
                 a3m = fp.read()
 
-            hhsearch_result = hhsearch_pdb70_runner.query(a3m)
-            pdb70_out_path = os.path.join(dpath, "pdb70_hits.hhr")
-            with open(pdb70_out_path, "w") as f:
-                f.write(hhsearch_result)
+            if args.hhsearch_binary_path is not None:
+                hhsearch_result = hhsearch_pdb70_runner.query(a3m)
+                pdb70_out_path = os.path.join(dpath, "pdb70_hits.hhr")
+                with open(pdb70_out_path, "w") as f:
+                    f.write(hhsearch_result)
 
 
 if __name__ == "__main__":

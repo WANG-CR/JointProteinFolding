@@ -25,6 +25,7 @@ import random
 import sys
 import time
 import torch
+import debugger
 
 from openfold.config import model_config
 from openfold.data import templates, feature_pipeline, data_pipeline
@@ -59,6 +60,10 @@ def main(args):
             kalign_binary_path=args.kalign_binary_path,
             release_dates_path=args.release_dates_path,
             obsolete_pdbs_path=args.obsolete_pdbs_path
+        )
+    else:
+        logging.warning(
+            "'template_featurizer' is set as None."
         )
 
     use_small_bfd=(args.bfd_database_path is None)
@@ -134,7 +139,10 @@ def main(args):
                 logging.info("MSAs not found. Performing prediction without MSAs...")
                 
         feature_dict = data_processor.process_fasta(
-            fasta_path=fasta_path, alignment_dir=local_alignment_dir
+            fasta_path=fasta_path,
+            alignment_dir=local_alignment_dir,
+            embedding_dir=None,
+            is_antibody=False,
         )
 
         # Remove temporary FASTA file

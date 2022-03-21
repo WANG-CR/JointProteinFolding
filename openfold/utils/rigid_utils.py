@@ -137,6 +137,21 @@ def identity_trans(
     return trans
 
 
+def Gaussian_trans(
+    batch_dims: Tuple[int], 
+    dtype: Optional[torch.dtype] = None,
+    device: Optional[torch.device] = None, 
+    requires_grad: bool = True,
+) -> torch.Tensor:
+    trans = torch.randn(
+        (*batch_dims, 3), 
+        dtype=dtype, 
+        device=device, 
+        requires_grad=requires_grad
+    )
+    return trans
+
+
 def identity_quats(
     batch_dims: Tuple[int], 
     dtype: Optional[torch.dtype] = None,
@@ -152,6 +167,51 @@ def identity_quats(
 
     with torch.no_grad():
         quat[..., 0] = 1
+
+    return quat
+
+
+def sphere_quats(
+    batch_dims: Tuple[int], 
+    dtype: Optional[torch.dtype] = None,
+    device: Optional[torch.device] = None,
+    requires_grad: bool = True,
+) -> torch.Tensor:
+    # sample rotation axis uniformly on sphere
+    rot_axis_theta = 2 * np.pi * torch.rand(
+        *batch_dims,
+        dtype=dtype,
+        device=device,
+        requires_grad=requires_grad,
+    ) # [*]
+
+    rot_axis_phi = torch.arccos(2 * torch.rand(
+        *batch_dims,
+        dtype=dtype,
+        device=device,
+        requires_grad=requires_grad,
+    ) - 1) # [*]
+
+    rot_axis = torch.stack([
+        torch.cos(rot_axis_theta) * torch.sin(rot_axis_phi),
+        torch.sin(rot_axis_theta) * torch.sin(rot_axis_phi),
+        torch.cos(rot_axis_phi)
+        ], dim=-1
+    ) # [*, 3]
+
+    # sample rotation angle
+    rot_angle = np.pi * torch.rand(
+        *batch_dims,
+        dtype=dtype,
+        device=device,
+        requires_grad=requires_grad,
+    ) # [*] [0, pi]
+    rot_angle = 0.5 * torch.clamp(rot_angle, min=np.pi * 1. / 180., max=np.pi * 179. / 180.) # [*]
+    quat = torch.cat([
+        torch.cos(rot_angle)[..., None],
+        torch.sin(rot_angle)[..., None] * rot_axis,
+        ], dim=-1
+    ) # [*, 4]
 
     return quat
 
@@ -330,7 +390,7 @@ class Rotation:
             rot_mats = rot_mats.to(dtype=torch.float32)
 
         if(quats is not None and normalize_quats):
-            quats = quats / torch.linalg.norm(quats, dim=-1, keepdim=True)
+            quats = quats / torch.linalg.norm(quats + 5e-8, dim=-1, keepdim=True)
 
         self._rot_mats = rot_mats
         self._quats = quats
@@ -373,6 +433,27 @@ class Rotation:
             return Rotation(rot_mats=None, quats=quats, normalize_quats=False)
         else:
             raise ValueError(f"Invalid format: f{fmt}")
+
+
+    @staticmethod
+    def sphere(
+        shape,
+        dtype: Optional[torch.dtype] = None,
+        device: Optional[torch.device] = None,
+        requires_grad: bool = True,
+        fmt: str = "quat",
+    ) -> Rotation:
+
+        if(fmt == "rot_mat"):
+            quats = sphere_quats(shape, dtype, device, requires_grad)
+            rot_mats = Rotation(rot_mats=None, quats=quats, normalize_quats=True).get_rot_mats()
+            return Rotation(rot_mats=rot_mats, quats=None)
+        elif(fmt == "quat"):
+            quats = sphere_quats(shape, dtype, device, requires_grad)
+            return Rotation(rot_mats=None, quats=quats, normalize_quats=True)
+        else:
+            raise ValueError(f"Invalid format: f{fmt}")
+        
 
     # Magic methods
 
@@ -580,6 +661,32 @@ class Rotation:
         return Rotation(
             rot_mats=None, 
             quats=new_quats, 
+            normalize_quats=normalize_quats,
+        )
+
+    def scale_angle(self, scale: float, normalize_quats: bool = True) -> Rotation:
+        """
+        Fix the rotation axis and rescale the rotation angle.
+
+        Args:
+            scale: scale applied to the rotation angle
+            normalize_quats: Whether to normalize the output quaternion
+        Returns:
+            A new Rotation
+        """
+        quats = self.get_quats()
+        norm = torch.linalg.norm(quats, dim=-1)
+        assert (((norm - 1).abs() < 1e-3) | (norm.abs() < 1e-3)).all(), \
+            "scale_angle requires quaternions to be normalized"
+        theta = torch.arccos(quats[..., 0]) # actually theta / 2
+        cos_scale = torch.cos(theta * scale) / (torch.cos(theta) + 5e-8)
+        sin_scale = torch.sin(theta * scale) / (torch.sin(theta) + 5e-8)
+        quats_scale = torch.stack([cos_scale, sin_scale, sin_scale, sin_scale], dim=-1)
+        new_quats = quats * quats_scale
+
+        return Rotation(
+            rot_mats=None,
+            quats=new_quats,
             normalize_quats=normalize_quats,
         )
 
@@ -896,6 +1003,41 @@ class Rigid:
             Rotation.identity(shape, dtype, device, requires_grad, fmt=fmt),
             identity_trans(shape, dtype, device, requires_grad),
         )
+
+    @staticmethod
+    def Gaussian(
+        shape: Tuple[int], 
+        dtype: Optional[torch.dtype] = None,
+        device: Optional[torch.device] = None, 
+        requires_grad: bool = True,
+        fmt: str = "quat",
+        random_rot: bool = False,
+    ) -> Rigid:
+        """
+            Constructs an Gaussian-translation transformation.
+
+            Args:
+                shape: 
+                    The desired shape
+                dtype: 
+                    The dtype of both internal tensors
+                device: 
+                    The device of both internal tensors
+                requires_grad: 
+                    Whether grad should be enabled for the internal tensors
+            Returns:
+                The identity transformation
+        """
+        if random_rot:
+            return Rigid(
+                Rotation.sphere(shape, dtype, device, requires_grad, fmt=fmt),
+                Gaussian_trans(shape, dtype, device, requires_grad),
+            )
+        else:
+            return Rigid(
+                Rotation.identity(shape, dtype, device, requires_grad, fmt=fmt),
+                Gaussian_trans(shape, dtype, device, requires_grad),
+            )
 
     def __getitem__(self, 
         index: Any,

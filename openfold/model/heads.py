@@ -89,7 +89,7 @@ class AuxiliaryHeads(nn.Module):
 
 
 class PerResidueLDDTCaPredictor(nn.Module):
-    def __init__(self, no_bins, c_in, c_hidden):
+    def __init__(self, no_bins, c_in, c_hidden, **kwargs):
         super(PerResidueLDDTCaPredictor, self).__init__()
 
         self.no_bins = no_bins

@@ -197,7 +197,7 @@ class InputEmbedder(nn.Module):
         )
         msa_emb = self.linear_msa_m(msa) + tf_m
 
-        return msa_emb, pair_emb
+        return msa_emb, pair_emb, residue_emb_m
 
 
 class Ca_Aware_Embedder(nn.Module):

@@ -77,24 +77,30 @@ class AlphaFold(nn.Module):
         self.recycling_embedder = RecyclingEmbedder(
             **config["recycling_embedder"],
         )
-        self.template_angle_embedder = TemplateAngleEmbedder(
-            **template_config["template_angle_embedder"],
-        )
-        self.template_pair_embedder = TemplatePairEmbedder(
-            **template_config["template_pair_embedder"],
-        )
-        self.template_pair_stack = TemplatePairStack(
-            **template_config["template_pair_stack"],
-        )
-        self.template_pointwise_att = TemplatePointwiseAttention(
-            **template_config["template_pointwise_attention"],
-        )
-        self.extra_msa_embedder = ExtraMSAEmbedder(
-            **extra_msa_config["extra_msa_embedder"],
-        )
-        self.extra_msa_stack = ExtraMSAStack(
-            **extra_msa_config["extra_msa_stack"],
-        )
+
+        if self.config.template.enabled:
+            self.template_pair_embedder = TemplatePairEmbedder(
+                **template_config["template_pair_embedder"],
+            )
+            self.template_pair_stack = TemplatePairStack(
+                **template_config["template_pair_stack"],
+            )
+            self.template_pointwise_att = TemplatePointwiseAttention(
+                **template_config["template_pointwise_attention"],
+            )
+            if self.config.template.embed_angles:
+                self.template_angle_embedder = TemplateAngleEmbedder(
+                    **template_config["template_angle_embedder"],
+                )
+
+        if self.config.extra_msa.enabled:
+            self.extra_msa_embedder = ExtraMSAEmbedder(
+                **extra_msa_config["extra_msa_embedder"],
+            )
+            self.extra_msa_stack = ExtraMSAStack(
+                **extra_msa_config["extra_msa_stack"],
+            )
+
         self.evoformer = EvoformerStack(
             **config["evoformer_stack"],
         )
@@ -359,22 +365,24 @@ class AlphaFold(nn.Module):
         return outputs, m_1_prev, z_prev, x_prev
 
     def _disable_activation_checkpointing(self):
-        self.template_pair_stack.blocks_per_ckpt = None
         self.evoformer.blocks_per_ckpt = None
-
-        for b in self.extra_msa_stack.blocks:
-            b.ckpt = False
+        if self.config.template.enabled:
+            self.template_pair_stack.blocks_per_ckpt = None
+        if self.config.extra_msa.enabled:
+            for b in self.extra_msa_stack.blocks:
+                b.ckpt = False
 
     def _enable_activation_checkpointing(self):
-        self.template_pair_stack.blocks_per_ckpt = (
-            self.config.template.template_pair_stack.blocks_per_ckpt
-        )
         self.evoformer.blocks_per_ckpt = (
             self.config.evoformer_stack.blocks_per_ckpt
         )
-
-        for b in self.extra_msa_stack.blocks:
-            b.ckpt = self.config.extra_msa.extra_msa_stack.ckpt
+        if self.config.template.enabled:
+            self.template_pair_stack.blocks_per_ckpt = (
+                self.config.template.template_pair_stack.blocks_per_ckpt
+            )
+        if self.config.extra_msa.enabled:
+            for b in self.extra_msa_stack.blocks:
+                b.ckpt = self.config.extra_msa.extra_msa_stack.ckpt
 
     def forward(self, batch):
         """

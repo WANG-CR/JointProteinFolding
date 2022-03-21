@@ -648,20 +648,33 @@ class DataPipeline:
         alignment_dir: str,
         embedding_dir: Optional[str] = None,
         _alignment_index: Optional[str] = None,
+        is_antibody: bool = True,
     ) -> FeatureDict:
         """Assembles features for a single sequence in a FASTA file""" 
         with open(fasta_path, 'r') as f:
             fasta_str = f.read()
         input_seqs, input_descs = parsers.parse_fasta(fasta_str)
-        if len(input_seqs) != 2:
-            raise ValueError(
-                "The input sequence should contain a heavy chain and a light chain."
-            )
         
-        input_sequence = input_seqs[0] + input_seqs[1]
-        input_description = input_descs[0]
+        if is_antibody:
+            if len(input_seqs) != 2:
+                raise ValueError(
+                    "Parsing fasta for antibodys...\n"
+                    "The input sequence should contain a heavy chain and a light chain."
+                )
+            input_sequence = input_seqs[0] + input_seqs[1]
+            input_description = input_descs[0]
+            chain_index = np.array([0] * len(input_seqs[0]) + [1] * len(input_seqs[1]))
+        else:
+            if len(input_seqs) != 1:
+                raise ValueError(
+                    "Parsing fasta for general proteins...\n"
+                    f"More than one input sequence found in {fasta_path}."
+                )
+            input_sequence = input_seqs[0]
+            input_description = input_descs[0]
+            chain_index = np.array([0] * len(input_seqs[0]))
+
         num_res = len(input_sequence)
-        chain_index = np.array([0] * len(input_seqs[0]) + [1] * len(input_seqs[1]))
 
         hits = self._parse_template_hits(alignment_dir, _alignment_index)
         template_features = make_template_features(
@@ -699,6 +712,7 @@ class DataPipeline:
         chain_id: Optional[str] = None,
         embedding_dir: Optional[str] = None,
         _alignment_index: Optional[str] = None,
+        is_antibody: bool = False,
     ) -> FeatureDict:
         """
             Assembles features for a specific chain in an mmCIF object.
@@ -706,6 +720,10 @@ class DataPipeline:
             If chain_id is None, it is assumed that there is only one chain
             in the object. Otherwise, a ValueError is thrown.
         """
+        if is_antibody:
+            raise NotImplementedError(
+                "'process_mmcif' is not supported for antibodies."
+            )
         if chain_id is None:
             chains = mmcif.structure.get_chains()
             chain = next(chains, None)
@@ -748,6 +766,7 @@ class DataPipeline:
         embedding_dir: Optional[str] = None,
         resolution: Optional[float] = None,
         _alignment_index: Optional[str] = None,
+        is_antibody: bool = True,
     ) -> FeatureDict:
         """
             Assembles features for a protein in a PDB file.
@@ -755,7 +774,11 @@ class DataPipeline:
         with open(pdb_path, 'r') as f:
             pdb_str = f.read()
 
-        protein_object = protein.from_pdb_string_antibody(pdb_str, chain_id)
+        if is_antibody:
+            protein_object = protein.from_pdb_string_antibody(pdb_str, chain_id)
+        else:
+            protein_object = protein.from_pdb_string(pdb_str, chain_id)
+
         input_sequence = _aatype_to_str_sequence(protein_object.aatype) 
         description = os.path.splitext(os.path.basename(pdb_path))[0].upper()
         pdb_feats = make_pdb_features(
@@ -794,10 +817,16 @@ class DataPipeline:
         alignment_dir: str,
         embedding_dir: Optional[str] = None,
         _alignment_index: Optional[str] = None,
+        is_antibody: bool = False,
     ) -> FeatureDict:
         """
             Assembles features for a protein in a ProteinNet .core file.
         """
+        if is_antibody:
+            raise NotImplementedError(
+                "'process_core' is not supported for antibodies."
+            )
+
         with open(core_path, 'r') as f:
             core_str = f.read()
 

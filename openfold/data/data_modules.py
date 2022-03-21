@@ -3,6 +3,7 @@ import copy
 from functools import partial
 import json
 import logging
+logging.basicConfig(level=logging.WARNING)
 import os
 import pickle
 from typing import Optional, Sequence, List, Any
@@ -128,6 +129,9 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
         #     _shuffle_top_k_prefiltered=shuffle_top_k_prefiltered,
         # )
         template_featurizer = None
+        logging.warning(
+            "'template_featurizer' in OpenFoldSingleDataset is set as None."
+        )
 
         self.data_pipeline = data_pipeline.DataPipeline(
             template_featurizer=template_featurizer,

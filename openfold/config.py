@@ -91,6 +91,16 @@ def model_config(name, train=False, low_prec=False):
     return c
 
 
+# loss weight
+distogram_weight = mlc.FieldReference(0.3, field_type=float)
+experimentally_resolved_weight = mlc.FieldReference(0.0, field_type=float)
+fape_weight = mlc.FieldReference(1.0, field_type=float)
+lddt_weight = mlc.FieldReference(0.01, field_type=float)
+masked_msa_weight = mlc.FieldReference(2.0, field_type=float)
+supervised_chi_weight = mlc.FieldReference(1.0, field_type=float)
+violation_weight = mlc.FieldReference(0.0, field_type=float)
+tm_weight = mlc.FieldReference(0.0, field_type=float)
+
 c_z = mlc.FieldReference(128, field_type=int)
 c_m = mlc.FieldReference(256, field_type=int)
 c_t = mlc.FieldReference(64, field_type=int)
@@ -415,23 +425,28 @@ config = mlc.ConfigDict(
                     "no_bins": 50,
                     "c_in": c_s,
                     "c_hidden": 128,
+                    "weight": lddt_weight,
                 },
                 "distogram": {
                     "c_z": c_z,
                     "no_bins": aux_distogram_bins,
+                    "weight": distogram_weight,
                 },
                 "tm": {
                     "c_z": c_z,
                     "no_bins": aux_distogram_bins,
                     "enabled": tm_enabled,
+                    "weight": tm_weight,
                 },
                 "masked_msa": {
                     "c_m": c_m,
                     "c_out": 23,
+                    "weight": masked_msa_weight,
                 },
                 "experimentally_resolved": {
                     "c_s": c_s,
                     "c_out": 37,
+                    "weight": experimentally_resolved_weight,
                 },
             },
         },
@@ -448,13 +463,13 @@ config = mlc.ConfigDict(
                 "max_bin": 21.6875,
                 "no_bins": 64,
                 "eps": eps,  # 1e-6,
-                "weight": 0.3,
+                "weight": distogram_weight,
             },
             "experimentally_resolved": {
                 "eps": eps,  # 1e-8,
                 "min_resolution": 0.1,
                 "max_resolution": 3.0,
-                "weight": 0.0,
+                "weight": experimentally_resolved_weight,
             },
             "fape": {
                 "backbone": {
@@ -468,7 +483,7 @@ config = mlc.ConfigDict(
                     "weight": 0.5,
                 },
                 "eps": 1e-4,
-                "weight": 1.0,
+                "weight": fape_weight,
             },
             "lddt": {
                 "min_resolution": 0.1,
@@ -476,23 +491,23 @@ config = mlc.ConfigDict(
                 "cutoff": 15.0,
                 "no_bins": 50,
                 "eps": eps,  # 1e-10,
-                "weight": 0.01,
+                "weight": lddt_weight,
             },
             "masked_msa": {
                 "eps": eps,  # 1e-8,
-                "weight": 2.0,
+                "weight": masked_msa_weight,
             },
             "supervised_chi": {
                 "chi_weight": 0.5,
                 "angle_norm_weight": 0.01,
                 "eps": eps,  # 1e-6,
-                "weight": 1.0,
+                "weight": supervised_chi_weight,
             },
             "violation": {
                 "violation_tolerance_factor": 12.0,
                 "clash_overlap_tolerance": 1.5,
                 "eps": eps,  # 1e-6,
-                "weight": 0.0,
+                "weight": violation_weight,
             },
             "tm": {
                 "max_bin": 31,
@@ -500,7 +515,7 @@ config = mlc.ConfigDict(
                 "min_resolution": 0.1,
                 "max_resolution": 3.0,
                 "eps": eps,  # 1e-8,
-                "weight": 0.0,
+                "weight": tm_weight,
                 "enabled": tm_enabled,
             },
             "eps": eps,

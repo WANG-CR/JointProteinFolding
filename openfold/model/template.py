@@ -110,7 +110,7 @@ class TemplatePointwiseAttention(nn.Module):
         """
         if template_mask is None:
             template_mask = t.new_ones(t.shape[:-3])
-
+        # [*, 1, 1, 1, 1, N_templ]
         bias = self.inf * (template_mask[..., None, None, None, None, :] - 1)
 
         # [*, N_res, N_res, 1, C_z]
@@ -190,6 +190,13 @@ class TemplatePairStackBlock(nn.Module):
         chunk_size: Optional[int] = None, 
         _mask_trans: bool = True
     ):
+        """
+        Args:
+            z:
+                [*, N_templ, N_res, N_res, C_t] template embedding
+            mask:
+                [*, N_templ, N_res, N_res] mask        
+        """
         single_templates = [
             t.unsqueeze(-4) for t in torch.unbind(z, dim=-4)
         ]

@@ -18,6 +18,7 @@ from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.plugins.training_type import DeepSpeedPlugin, DDPPlugin
 from pytorch_lightning.plugins.environments import SLURMEnvironment
 import torch
+import debugger
 
 from openfold.config import model_config
 from openfold.data.data_modules import (

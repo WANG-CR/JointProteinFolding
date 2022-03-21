@@ -1581,7 +1581,7 @@ class AlphaFoldLoss(nn.Module):
         self.config = config
 
     def forward(self, out, batch, _return_breakdown=False):
-        if "violation" not in out.keys():
+        if "violation" not in out.keys() and self.config.violation.weight:
             out["violation"] = find_structural_violations(
                 batch,
                 out["sm"]["positions"][-1],
@@ -1640,12 +1640,15 @@ class AlphaFoldLoss(nn.Module):
         losses = {}
         for loss_name, loss_fn in loss_fns.items():
             weight = self.config[loss_name].weight
-            loss = loss_fn()
-            if(torch.isnan(loss) or torch.isinf(loss)):
-                logging.warning(f"{loss_name} loss is NaN. Skipping...")
-                loss = loss.new_tensor(0., requires_grad=True)
-            cum_loss = cum_loss + weight * loss
-            losses[loss_name] = loss.detach().clone()
+            
+            if weight > 0:
+                loss = loss_fn()
+                
+                if(torch.isnan(loss) or torch.isinf(loss)):
+                    logging.warning(f"{loss_name} loss is NaN. Skipping...")
+                    loss = loss.new_tensor(0., requires_grad=True)
+                cum_loss = cum_loss + weight * loss
+                losses[loss_name] = loss.detach().clone()
 
         losses["unscaled_loss"] = cum_loss.detach().clone()
 
