@@ -27,6 +27,13 @@ def model_config(name, train=False, low_prec=False):
         c.model.structure_module.no_blocks = 8
         c.model.template.enabled = False
         c.model.extra_msa.enabled = False
+    elif name == "esm1b_cat":
+        c.model.evoformer_stack.no_blocks = 8
+        c.model.structure_module.no_blocks = 8
+        c.model.template.enabled = False
+        c.model.extra_msa.enabled = False
+        c.model.residue_emb.enabled = True
+        c.model.residue_emb.usage = "cat"
     #**********************biofold**********************#
     elif name == "finetuning":
         # AF2 Suppl. Table 4, "finetuning" setting
@@ -313,7 +320,7 @@ config = mlc.ConfigDict(
         },
         "scheduler": {
             "warmup_no_steps": 1000,
-            "start_decay_after_n_steps": 10000,
+            "start_decay_after_n_steps": 50000,
             "decay_every_n_steps": 5000,
             "decay_factor": 0.95,
         },
