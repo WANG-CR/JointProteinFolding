@@ -16,6 +16,7 @@ conda install -y llvmdev=10.0.0 matplotlib
 pip install cmake
 pip install biopython==1.79 deepspeed==0.5.3 ml-collections==0.1.0 PyYAML==5.4.1 requests==2.26.0 \
         tqdm==4.62.2 typing-extensions==3.10.0.2 pytorch_lightning==1.5.0 \
+        beautifulsoup4 fair-esm wandb \
         git+https://github.com/NVIDIA/dllogger.git nvidia-pyindex \
         git+https://github.com/deepmind/tree.git
 

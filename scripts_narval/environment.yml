@@ -22,6 +22,7 @@ dependencies:
       - nvidia-pyindex
       - beautifulsoup4
       - fair-esm
+      - wandb
   - intel-openmp=2021.4.0
   - cudatoolkit=11.3
   - matplotlib

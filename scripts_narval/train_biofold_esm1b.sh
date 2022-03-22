@@ -24,7 +24,7 @@ VALID_EMBED_DIR=$WORK_DIR/pretrained_embeddings/esm1b/20220319_99_True_All__4_va
 OUTPUT_DIR=$WORK_DIR/output
 
 CONFIG_PRESET=esm1b_cat
-python train_biofold.py $TRAIN_DIR/ $TRAIN_DIR/ $TRAIN_DIR/ \
+srun python train_biofold.py $TRAIN_DIR/ $TRAIN_DIR/ $TRAIN_DIR/ \
     $OUTPUT_DIR/$CONFIG_PRESET \
     2021-12-31 \
     --config_preset $CONFIG_PRESET \

@@ -22,7 +22,7 @@ VALID_DIR=$WORK_DIR/database/pdb/20220319_99_True_All__4_valid
 OUTPUT_DIR=$WORK_DIR/output
 
 CONFIG_PRESET=vanilla
-python train_biofold.py $TRAIN_DIR/ $TRAIN_DIR/ $TRAIN_DIR/ \
+srun python train_biofold.py $TRAIN_DIR/ $TRAIN_DIR/ $TRAIN_DIR/ \
     $OUTPUT_DIR/$CONFIG_PRESET \
     2021-12-31 \
     --config_preset $CONFIG_PRESET \
