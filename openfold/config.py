@@ -22,11 +22,18 @@ def model_config(name, train=False, low_prec=False):
         c.model.template.enabled = False
         c.model.extra_msa.enabled = False
         c.scheduler.warmup_no_steps = 0
+        c.data.data_module.data_loaders.batch_size = 2
     elif name == "vanilla":
         c.model.evoformer_stack.no_blocks = 8
         c.model.structure_module.no_blocks = 8
         c.model.template.enabled = False
         c.model.extra_msa.enabled = False
+    elif name == "bs2":
+        c.model.evoformer_stack.no_blocks = 8
+        c.model.structure_module.no_blocks = 8
+        c.model.template.enabled = False
+        c.model.extra_msa.enabled = False
+        c.data.data_module.data_loaders.batch_size = 2
     elif name == "esm1b_cat":
         c.model.evoformer_stack.no_blocks = 8
         c.model.structure_module.no_blocks = 8
@@ -107,6 +114,11 @@ def model_config(name, train=False, low_prec=False):
         # If we want exact numerical parity with the original, inf can't be
         # a global constant
         set_inf(c, 1e4)
+    
+    if c.data.data_module.data_loaders.batch_size > 1:
+        # We assume the training crop_size is always bigger
+        # than the sequence length during the validation.
+        c.data.eval.crop_size = c.data.train.crop_size
 
     return c
 
@@ -276,7 +288,7 @@ config = mlc.ConfigDict(
                 "max_template_hits": 4,
                 "max_templates": 4,
                 "crop": False,
-                "crop_size": None,
+                "crop_size": None, # necessary for batch_size >= 2
                 "supervised": True,
                 "uniform_recycling": False,
             },

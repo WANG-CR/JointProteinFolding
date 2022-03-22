@@ -149,17 +149,16 @@ class OpenFoldWrapper(pl.LightningModule):
     ):
         metrics = {}
         
-        gt_coords = batch["all_atom_positions"]
-        pred_coords = outputs["final_atom_positions"]
-        all_atom_mask = batch["all_atom_mask"]
-    
+        gt_coords = batch["all_atom_positions"] # [*, N, 37, 3]
+        pred_coords = outputs["final_atom_positions"] # [*, N, 37, 3]
+        all_atom_mask = batch["all_atom_mask"] # [*, N, 37]
         # This is super janky for superimposition. Fix later
-        gt_coords_masked = gt_coords * all_atom_mask[..., None]
-        pred_coords_masked = pred_coords * all_atom_mask[..., None]
+        gt_coords_masked = gt_coords * all_atom_mask[..., None] # [*, N, 37, 3]
+        pred_coords_masked = pred_coords * all_atom_mask[..., None] # [*, N, 37, 3]
         ca_pos = residue_constants.atom_order["CA"]
-        gt_coords_masked_ca = gt_coords_masked[..., ca_pos, :]
-        pred_coords_masked_ca = pred_coords_masked[..., ca_pos, :]
-        all_atom_mask_ca = all_atom_mask[..., ca_pos]
+        gt_coords_masked_ca = gt_coords_masked[..., ca_pos, :] # [*, N, 3]
+        pred_coords_masked_ca = pred_coords_masked[..., ca_pos, :] # [*, N, 3]
+        all_atom_mask_ca = all_atom_mask[..., ca_pos] # [*, N]
     
         lddt_ca_score = lddt_ca(
             pred_coords,
@@ -167,22 +166,22 @@ class OpenFoldWrapper(pl.LightningModule):
             all_atom_mask,
             eps=self.config.globals.eps,
             per_residue=False,
-        )
+        ) # [*]
 
         metrics["lddt_ca"] = lddt_ca_score
 
         drmsd_ca_score = compute_drmsd(
             pred_coords_masked_ca,
             gt_coords_masked_ca,
-            mask=all_atom_mask_ca, # still required here to compute n
-        )
+            mask=all_atom_mask_ca,
+        ) # [*]
 
         metrics["drmsd_ca"] = drmsd_ca_score
 
         if(superimposition_metrics):
             superimposed_pred, _ = superimpose(
                 gt_coords_masked_ca, pred_coords_masked_ca
-            )
+            ) # [*, N, 3]
             gdt_ts_score = gdt_ts(
                 superimposed_pred, gt_coords_masked_ca, all_atom_mask_ca
             )

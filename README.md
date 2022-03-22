@@ -93,8 +93,10 @@ biofold
 |   
 |___output # 
 |   |___slurm_log # dir for slurm output
-|   |___$CONFIG_PRESET1 # experimental results for CONFIG_PRESET1
-|   |___$CONFIG_PRESET2 # experimental results for CONFIG_PRESET2
+|   |___wandb # wandb logs
+|   |___wandb_biofold # experimental results
+|   |   |___${CONFIG_PRESET1}-${wandb_version}
+|   |   |___${CONFIG_PRESET2}-${wandb_version}
 |
 |___pretrained_embeddings
 |   |___esm1b

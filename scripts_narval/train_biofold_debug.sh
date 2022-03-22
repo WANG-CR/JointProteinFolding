@@ -5,7 +5,7 @@ module load cuda/11.4
 source activate $ENV_NAME
 echo env done
 
-# 2. debug with one sample.
+# 2. debug with 8 samples.
 WORK_DIR=$SCRATCH/biofold
 TRAIN_DIR=$WORK_DIR/example_data/training/train
 VALID_DIR=$WORK_DIR/example_data/training/valid

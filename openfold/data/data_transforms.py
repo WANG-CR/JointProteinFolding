@@ -1121,6 +1121,7 @@ def get_chi_angles(protein):
 @curry1
 def random_crop_to_size(
     protein,
+    crop,
     crop_size,
     max_templates,
     shape_schema,
@@ -1132,7 +1133,6 @@ def random_crop_to_size(
     g = torch.Generator(device=protein["seq_length"].device)
     if seed is not None:
         g.manual_seed(seed)
-
     seq_length = protein["seq_length"]
 
     if "template_mask" in protein:
@@ -1142,6 +1142,13 @@ def random_crop_to_size(
 
     # No need to subsample templates if there aren't any
     subsample_templates = subsample_templates and num_templates
+
+    if not crop and crop_size < seq_length:
+        raise ValueError(
+            "crop_size should be no smaller than seq_length when crop is False.\n"
+            f"Found seq_length={seq_length}, crop_size={crop_size}. "
+            "Try to use a larger crop_size."
+        )
 
     num_res_crop_size = min(int(seq_length), crop_size)
 

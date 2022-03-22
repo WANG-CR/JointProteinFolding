@@ -1545,6 +1545,19 @@ def masked_msa_loss(logits, true_msa, bert_mask, eps=1e-8, **kwargs):
 
 
 def compute_drmsd(structure_1, structure_2, mask=None):
+    """
+        Compute drmsd between two structures.
+
+        Args:
+            structure_1:
+                [*, N, 3] (ca) coordinate tensor
+            structure_2:
+                [*, N, 3] (ca) coordinate tensor
+            mask:
+                [*, N] residue masks
+        Returns:
+            A [*] tensor contains the final drmsd.
+    """
     if(mask is not None):
         structure_1 = structure_1 * mask[..., None]
         structure_2 = structure_2 * mask[..., None]
@@ -1555,15 +1568,24 @@ def compute_drmsd(structure_1, structure_2, mask=None):
     d1 = d1 ** 2
     d2 = d2 ** 2
 
-    d1 = torch.sqrt(torch.sum(d1, dim=-1))
-    d2 = torch.sqrt(torch.sum(d2, dim=-1))
+    d1 = torch.sqrt(torch.sum(d1, dim=-1)) # [*, N, N]
+    d2 = torch.sqrt(torch.sum(d2, dim=-1)) # [*, N, N]
 
+    # Automatic type conversion (float16 -> float32) may occur here.
     drmsd = d1 - d2
     drmsd = drmsd ** 2
-    drmsd = torch.sum(drmsd, dim=(-1, -2))
-    n = d1.shape[-1] if mask is None else torch.sum(mask, dim=-1)
-    drmsd = drmsd * (1 / (n * (n - 1))) if n > 1 else 0.
-    drmsd = torch.sqrt(drmsd)
+    drmsd = torch.sum(drmsd, dim=(-1, -2)) # [*, ]
+    
+    # n = d1.shape[-1] if mask is None else torch.sum(mask, dim=-1) # [*, ]
+    if mask is None:
+        n = torch.full(drmsd.size(), d1.shape[-1]) # [*, ]
+    else:
+        n = torch.sum(mask, dim=-1) # [*, ]
+
+    # drmsd = drmsd * (1 / (n * (n - 1))) if n > 1 else 0.
+    denom = 1 / torch.clamp(n * (n - 1), min=1) # avoid dividing 0.
+    drmsd = torch.where(n > 1, drmsd * (1 / denom), torch.zeros_like(drmsd))
+    drmsd = torch.sqrt(drmsd) # [*, ]
 
     return drmsd
 

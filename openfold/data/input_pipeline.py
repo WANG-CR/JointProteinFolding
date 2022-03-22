@@ -126,6 +126,7 @@ def ensembled_transform_fns(common_cfg, mode_cfg, ensemble_seed):
         transforms.append(data_transforms.select_feat(list(crop_feats)))
         transforms.append(
             data_transforms.random_crop_to_size(
+                mode_cfg.crop,
                 mode_cfg.crop_size,
                 mode_cfg.max_templates,
                 crop_feats,

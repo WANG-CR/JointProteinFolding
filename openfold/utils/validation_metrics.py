@@ -15,15 +15,30 @@ import torch
 
 
 def gdt(p1, p2, mask, cutoffs):
-    n = torch.sum(mask, dim=-1)
+    """
+        Compute GDT between two structures.
+        (Global Distance Test under specified distance cutoff)
+        Args:
+            p1:
+                [*, N, 3] superimposed predicted (ca) coordinate tensor
+            p2:
+                [*, N, 3] ground-truth (ca) coordinate tensor
+            mask:
+                [*, N] residue masks
+            cutoffs:
+                A tuple of size 4, which contains distance cutoffs.
+        Returns:
+            A [*] tensor contains the final GDT score.
+    """
+    n = torch.sum(mask, dim=-1) # [*]
     
     p1 = p1.float()
     p2 = p2.float()
-    distances = torch.sqrt(torch.sum((p1 - p2)**2, dim=-1))
+    distances = torch.sqrt(torch.sum((p1 - p2)**2, dim=-1)) # [*, N]
     
     scores = []
     for c in cutoffs:
-        score = torch.sum((distances <= c) * mask, dim=-1) / n
+        score = torch.sum((distances <= c) * mask, dim=-1) / n # [*]
         scores.append(score)
 
     return sum(scores) / len(scores)
