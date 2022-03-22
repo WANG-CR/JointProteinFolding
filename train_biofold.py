@@ -302,17 +302,20 @@ def main(args):
 
     loggers = []
     if(args.wandb):
+        # https://docs.wandb.ai/ref/python/init
         wdb_logger = WandbLogger(
             name=args.experiment_name,
             save_dir=args.output_dir,
-            offline=True,
-            id=args.wandb_id,
+            version=args.wandb_version,
             project=args.wandb_project,
+            offline=True,
             **{"entity": args.wandb_entity}
         )
         loggers.append(wdb_logger)
-        if not os.path.exists(os.path.join(args.output_dir, "wandb")):
-            os.makedirs(os.path.join(args.output_dir, "wandb"), exist_ok=True)
+        wandb_log_dir = os.path.join(args.output_dir, "wandb")
+        if not os.path.exists(wandb_log_dir):
+            logging.info(f"generating directory for wandb logging located at {wandb_log_dir}")
+            os.makedirs(wandb_log_dir, exist_ok=True)
 
     if(args.deepspeed_config_path is not None):
         strategy = DeepSpeedPlugin(
@@ -332,8 +335,6 @@ def main(args):
         strategy=strategy,
         callbacks=callbacks,
         logger=loggers,
-        log_every_n_steps=50,
-        max_epochs=1000,
     )
 
     if(args.resume_model_weights_only):
@@ -374,13 +375,17 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "output_dir", type=str,
-        help='''Directory in which to output checkpoints, logs, etc. Ignored
-                if not on rank 0'''
+        help=(
+            "Directory in which to output checkpoints, logs, etc. Ignored "
+            "if not on rank 0"
+        )
     )
     parser.add_argument(
         "max_template_date", type=str,
-        help='''Cutoff for all templates. In training mode, templates are also 
-                filtered by the release date of the target'''
+        help=(
+            "Cutoff for all templates. In training mode, templates are also "
+            "filtered by the release date of the target"
+        )
     )
     parser.add_argument(
         "--sabdab_summary_file", type=str,
@@ -403,28 +408,31 @@ if __name__ == "__main__":
         help="Directory containing precomputed validation alignments"
     )
     parser.add_argument(
-        "--kalign_binary_path", type=str, default='/usr/bin/kalign',
+        "--kalign_binary_path", type=str, default="/usr/bin/kalign",
         help="Path to the kalign binary"
     )
     parser.add_argument(
         "--train_mapping_path", type=str, default=None,
-        help='''Optional path to a .json file containing a mapping from
-                consecutive numerical indices to sample names. Used to filter
-                the training set'''
+        help=(
+            "Optional path to a .json file containing a mapping from "
+            "consecutive numerical indices to sample names. Used to filter "
+            "the training set"
+        )
     )
     parser.add_argument(
         "--distillation_mapping_path", type=str, default=None,
-        help="""See --train_mapping_path"""
+        help="See --train_mapping_path"
     )
     parser.add_argument(
         "--obsolete_pdbs_file_path", type=str, default=None,
-        help="""Path to obsolete.dat file containing list of obsolete PDBs and 
-             their replacements."""
+        help=(
+            "Path to obsolete.dat file containing list of obsolete PDBs and "
+            "their replacements"
+        )
     )
     parser.add_argument(
         "--template_release_dates_cache_path", type=str, default=None,
-        help="""Output of scripts/generate_mmcif_cache.py run on template mmCIF
-                files."""
+        help="Output of scripts/generate_mmcif_cache.py run on template mmCIF files"
     )
     parser.add_argument(
         "--use_small_bfd", type=bool_type, default=False,
@@ -439,17 +447,15 @@ if __name__ == "__main__":
         help="Path to DeepSpeed config. If not provided, DeepSpeed is disabled"
     )
     parser.add_argument(
-        "--checkpoint_every_epoch", action="store_true", default=False,
-        help="""Whether to checkpoint at the end of every training epoch"""
-    )
-    parser.add_argument(
         "--early_stopping", type=bool_type, default=False,
         help="Whether to stop training when validation loss fails to decrease"
     )
     parser.add_argument(
         "--min_delta", type=float, default=0,
-        help="""The smallest decrease in validation loss that counts as an 
-                improvement for the purposes of early stopping"""
+        help=(
+            "The smallest decrease in validation loss that counts as an "
+            "improvement for the purposes of early stopping"
+        )
     )
     parser.add_argument(
         "--patience", type=int, default=3,
@@ -464,28 +470,46 @@ if __name__ == "__main__":
         help="Whether to load just model weights as opposed to training state"
     )
     parser.add_argument(
+        "--train_epoch_len", type=int, default=None,
+        help=(
+            "The virtual length of each training epoch. Stochastic filtering "
+            "of training data means that training datasets have no "
+            "well-defined length. This virtual length affects frequency of "
+            "validation & checkpointing (by default, one of each per epoch)."
+            "If set to None, use the length of the dataset as epoch_len."
+        )
+    )
+    parser.add_argument(
+        "--checkpoint_every_epoch", type=bool_type, default=True,
+        help="Whether to checkpoint at the end of every training epoch"
+    )
+    parser.add_argument(
         "--log_performance", type=bool_type, default=False,
         help="Measure performance"
     )
     parser.add_argument(
-        "--wandb", action="store_true", default=False,
+        "--log_lr", type=bool_type, default=True,
+        help="Whether to log the actual learning rate"
+    )
+    parser.add_argument(
+        "--wandb", type=bool_type, default=False,
         help="Whether to log metrics to Weights & Biases"
     )
     parser.add_argument(
-        "--experiment_name", type=str, default=None,
-        help="Name of the current experiment. Used for wandb logging"
+        "--wandb_entity", type=str, default=None,
+        help="wandb username or team name to which runs are attributed"
     )
     parser.add_argument(
-        "--wandb_id", type=str, default=None,
-        help="ID of a previous run to be resumed"
+        "--wandb_version", type=str, default=None,
+        help="Sets the version, mainly used to resume a previous run."
     )
     parser.add_argument(
         "--wandb_project", type=str, default=None,
         help="Name of the wandb project to which this run will belong"
     )
     parser.add_argument(
-        "--wandb_entity", type=str, default=None,
-        help="wandb username or team name to which runs are attributed"
+        "--experiment_name", type=str, default=None,
+        help="Name of the current experiment. Used for wandb logging"
     )
     parser.add_argument(
         "--script_modules", type=bool_type, default=False,
@@ -510,25 +534,11 @@ if __name__ == "__main__":
         "--distillation_chain_data_cache_path", type=str, default=None,
     )
     parser.add_argument(
-        "--train_epoch_len", type=int, default=None,
-        help=(
-            "The virtual length of each training epoch. Stochastic filtering "
-            "of training data means that training datasets have no "
-            "well-defined length. This virtual length affects frequency of "
-            "validation & checkpointing (by default, one of each per epoch)."
-            "If set to None, use the length of the dataset as epoch_len."
-        )
-    )
-    parser.add_argument(
-        "--log_lr", action="store_true", default=False,
-        help="Whether to log the actual learning rate"
-    )
-    parser.add_argument(
         "--config_preset", type=str, default="initial_training",
         help=(
-            'Config setting. Choose e.g. "initial_training", "finetuning", '
-            '"model_1", etc. By default, the actual values in the config are '
-            'used.'
+            "Config setting. Choose e.g. 'initial_training', 'finetuning', "
+            "'model_1', etc. By default, the actual values in the config are "
+            "used."
         )
     )
     parser.add_argument(
@@ -558,6 +568,13 @@ if __name__ == "__main__":
         ((args.gpus is not None and args.gpus > 1) or 
          (args.num_nodes is not None and args.num_nodes > 1))):
         raise ValueError("For distributed training, --seed must be specified")
+
+    # process wandb args
+    if (args.wandb):
+        if args.wandb_version is not None:
+            args.wandb_version = f"{args.config_preset}-{args.wandb_version}"
+        if args.experiment_name is None:
+            args.experiment_name = args.wandb_version
 
     # This re-applies the training-time filters at the beginning of every epoch
     args.reload_dataloaders_every_n_epochs = 1

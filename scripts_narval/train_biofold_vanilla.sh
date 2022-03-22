@@ -11,8 +11,6 @@
 #SBATCH --error=/home/shichenc/scratch/biofold/output/slurm_log/vanilla_v1.err
 #SBATCH --qos=unkillable
 
-#! /bin/bash
-# 1. Activate environement
 ENV_NAME=biofold
 module load cuda/11.4
 source activate $ENV_NAME
@@ -23,21 +21,16 @@ OUTPUT_DIR=$WORK_DIR/output
 
 CONFIG_PRESET=vanilla
 srun python train_biofold.py $TRAIN_DIR/ $TRAIN_DIR/ $TRAIN_DIR/ \
-    $OUTPUT_DIR/$CONFIG_PRESET \
+    $OUTPUT_DIR/ \
     2021-12-31 \
+    --seed 2022 \
     --config_preset $CONFIG_PRESET \
     --val_data_dir $VALID_DIR/ \
     --val_alignment_dir $VALID_DIR/ \
-    --sabdab_summary_file $WORK_DIR/database/info/20220319_99_True_All__4_sabdab_summary.tsv \
-    --log_lr \
-    --checkpoint_every_epoch \
-    --seed 2022 \
+    --precision 16 --gpus 4 --log_every_n_steps 50 \
+    --wandb true \
+    --wandb_entity chenceshi \
+    --wandb_version narval_v1 \
+    --wandb_project wandb_biofold \
     --deepspeed_config_path deepspeed_config_scc.json \
-    --precision 16 \
-    --gpus 4 --replace_sampler_ddp=True \
-    --script_modules false \
-    --wandb \
-    --wandb_id v1 \
-    --wandb_project biofold \
-    --experiment_name vanilla_narval24h \
-
+    --sabdab_summary_file $WORK_DIR/database/info/20220319_99_True_All__4_sabdab_summary.tsv \
