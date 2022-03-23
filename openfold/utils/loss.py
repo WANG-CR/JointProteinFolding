@@ -1578,7 +1578,9 @@ def compute_drmsd(structure_1, structure_2, mask=None):
     
     # n = d1.shape[-1] if mask is None else torch.sum(mask, dim=-1) # [*, ]
     if mask is None:
-        n = torch.full(drmsd.size(), d1.shape[-1]) # [*, ]
+        n = torch.full(
+            drmsd.size(), d1.shape[-1], device=drmsd.device, dtype=drmsd.dtype,
+        ) # [*, ]
     else:
         n = torch.sum(mask, dim=-1) # [*, ]
 

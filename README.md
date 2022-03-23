@@ -25,29 +25,33 @@ source activate biofold
 
 ## Changes from OpenFold to BioFold*
 
-* Patch `data_pipeline.py` and `data_modules.py`. They now support antibody data as well.
+* Mar 18. Patch `data_pipeline.py` and `data_modules.py`. They now support antibody data as well.
   
-* Following AlphaFold 2.0, we rewrite the `protein.py` to support mutiple chain PDBs.
+* Mar 18. Following AlphaFold 2.0, we rewrite the `protein.py` to support mutiple chain PDBs.
 
-* Fix the `zeto_to_fp32` in `scripts/zero_to_fp32_issue1422.py`
+* Mar 20. Fix the `zeto_to_fp32` in `scripts/zero_to_fp32_issue1422.py`
 
-* Incorporate embeddings computed by Pre-trained Protein Language model, e.g, [ESM-1b](https://github.com/facebookresearch/esm) into the evoformer.
+* Mar 20. Incorporate embeddings computed by Pre-trained Protein Language model, e.g, [ESM-1b](https://github.com/facebookresearch/esm) into the evoformer.
 
-* Fix unused parameter problem when using the torch's native DDP strategy.
+* Mar 20. Fix unused parameter problem when using the torch's native DDP strategy.
 
-* Fix overflow issue caused by `float16` data type.
+* Mar 20. Fix overflow issue caused by `float16` data type.
 
-* Fix several bugs when `TorchScripting` eligible components of the model.
+* Mar 20. Fix several bugs when `TorchScripting` eligible components of the model.
 
-* Add resolution data from `sabdab_summary_file` for training the plddt head.
+* Mar 20. Add resolution data from `sabdab_summary_file` for training the plddt head.
 
-* Patch the `data_modules.py` so that if `chain_data_cache_paths` is not provided, all train_filters described in Supplement 1.2.5 are ignored.
+* Mar 20. Patch the `data_modules.py` so that if `chain_data_cache_paths` is not provided, all train_filters described in Supplement 1.2.5 are ignored.
 
-* Add `chain_index` and `loop_index` for proteins
+* Mar 20. Add `chain_index` and `loop_index` for proteins
 
-* Normalize proteins coordinates so that they have zero means to avoid large coordinates.
+* Mar 21. Normalize proteins coordinates so that they have zero means to avoid large coordinates.
 
-* Add scripts for creating antibody datasets and benchmarks.
+* Mar 21. Add scripts for creating antibody datasets and benchmarks.
+
+* Mar 22. Fix batched dRMSD calculation and now support `batch_size >= 1`.
+
+* Mar 22. Store config in YAML format.
 
 ## Prepare Datasets and Benchmarks*
 

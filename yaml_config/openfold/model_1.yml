@@ -1,0 +1,12 @@
+# AF2 Suppl. Table 5, Model 1.1.1
+
+model:
+  template:
+    enabled: true
+
+data:
+  common:
+    max_extra_msa: 5120
+    reduce_max_clusters_by_max_templates: true
+    use_templates: true
+    use_template_torsion_angles: true

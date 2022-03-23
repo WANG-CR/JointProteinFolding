@@ -1,6 +1,5 @@
 import argparse
 import logging
-from sched import scheduler
 logging.basicConfig(level=logging.INFO)
 import os
 
@@ -237,7 +236,8 @@ def main(args):
         seed_everything(args.seed) 
 
     config = model_config(
-        args.config_preset, 
+        name=args.config_preset,
+        yaml_config_preset=args.yaml_config_preset,
         train=True, 
         low_prec=(args.precision == 16),
     )
@@ -323,6 +323,8 @@ def main(args):
         if(args.wandb):
             wdb_logger.experiment.save(args.deepspeed_config_path)
             wdb_logger.experiment.save("openfold/config.py")
+            if args.yaml_config_preset is not None:
+                wdb_logger.experiment.save(args.yaml_config_preset)
     elif (args.gpus is not None and args.gpus > 1) or args.num_nodes > 1:
         strategy = DDPPlugin(find_unused_parameters=False)
     else:
@@ -533,11 +535,19 @@ if __name__ == "__main__":
         "--distillation_chain_data_cache_path", type=str, default=None,
     )
     parser.add_argument(
-        "--config_preset", type=str, default="initial_training",
+        "--config_preset", type=str, default=None,
         help=(
             "Config setting. Choose e.g. 'initial_training', 'finetuning', "
             "'model_1', etc. By default, the actual values in the config are "
             "used."
+        )
+    )
+    parser.add_argument(
+        "--yaml_config_preset", type=str, default=None,
+        help=(
+            "A path to a yaml file that contains the updated config setting. "
+            "If it is set, the config_preset will be overwrriten as the basename "
+            "of the yaml_config_preset."
         )
     )
     parser.add_argument(
@@ -567,9 +577,22 @@ if __name__ == "__main__":
         ((args.gpus is not None and args.gpus > 1) or 
          (args.num_nodes is not None and args.num_nodes > 1))):
         raise ValueError("For distributed training, --seed must be specified")
+    
+    if(args.config_preset is None and args.yaml_config_preset is None):
+        raise ValueError(
+            "Either --config_preset or --yaml_config_preset should be specified."
+        )
+
+    if(args.yaml_config_preset is not None):
+        if not os.path.exists(args.yaml_config_preset):
+            raise FileNotFoundError(f"{os.path.abspath(args.yaml_config_preset)}")
+        args.config_preset = os.path.splitext(
+            os.path.basename(args.yaml_config_preset)
+        )[0]
+        logging.info(f"the config_preset is set as {args.config_preset} by yaml_config_preset.")
 
     # process wandb args
-    if (args.wandb):
+    if(args.wandb):
         if args.wandb_version is not None:
             args.wandb_version = f"{args.config_preset}-{args.wandb_version}"
         if args.experiment_name is None:

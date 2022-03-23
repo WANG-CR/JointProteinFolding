@@ -1,0 +1,10 @@
+model:
+  template:
+    enabled: false
+  heads:
+    tm:
+      enabled: true
+
+loss:
+  tm:
+    weight: 0.1

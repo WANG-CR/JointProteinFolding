@@ -1,5 +1,10 @@
+import logging
+logging.basicConfig(level=logging.WARNING)
+import os
 import copy
+import yaml
 import ml_collections as mlc
+from typing import Optional
 
 
 def set_inf(c, inf):
@@ -10,99 +15,102 @@ def set_inf(c, inf):
             c[k] = inf
 
 
-def model_config(name, train=False, low_prec=False):
+def recursive_set(target, src):
+    """
+        Recursively set target dict using src dict by matching keys and depths
+    """
+    for (k, v) in src.items():
+        if not isinstance(v, dict):
+            target[k] = v
+        else:
+            if k not in target:
+                raise ValueError(
+                    f"Key error. Target dict does not contain the key {k}. "
+                    "Please check your source (yaml) dict."
+                )
+            recursive_set(target[k], v)
+
+
+def model_config(
+    name,
+    yaml_config_preset: Optional[str] = None,
+    train: bool = False,
+    low_prec: bool = False,
+):
     c = copy.deepcopy(config)
-    if name == "initial_training":
-        # AF2 Suppl. Table 4, "initial training" setting
-        pass
-    #**********************biofold**********************#
-    elif name == "debug":
-        c.model.evoformer_stack.no_blocks = 8
-        c.model.structure_module.no_blocks = 8
-        c.model.template.enabled = False
-        c.model.extra_msa.enabled = False
-        c.scheduler.warmup_no_steps = 0
-        c.data.data_module.data_loaders.batch_size = 2
-    elif name == "vanilla":
-        c.model.evoformer_stack.no_blocks = 8
-        c.model.structure_module.no_blocks = 8
-        c.model.template.enabled = False
-        c.model.extra_msa.enabled = False
-    elif name == "bs2":
-        c.model.evoformer_stack.no_blocks = 8
-        c.model.structure_module.no_blocks = 8
-        c.model.template.enabled = False
-        c.model.extra_msa.enabled = False
-        c.data.data_module.data_loaders.batch_size = 2
-    elif name == "esm1b_cat":
-        c.model.evoformer_stack.no_blocks = 8
-        c.model.structure_module.no_blocks = 8
-        c.model.template.enabled = False
-        c.model.extra_msa.enabled = False
-        c.model.residue_emb.enabled = True
-        c.model.residue_emb.usage = "cat"
-    #**********************biofold**********************#
-    elif name == "finetuning":
-        # AF2 Suppl. Table 4, "finetuning" setting
-        c.data.common.max_extra_msa = 5120
-        c.data.train.crop_size = 384
-        c.data.train.max_msa_clusters = 512
-        c.loss.violation.weight = 1.
-    elif name == "model_1":
-        # AF2 Suppl. Table 5, Model 1.1.1
-        c.data.common.max_extra_msa = 5120
-        c.data.common.reduce_max_clusters_by_max_templates = True
-        c.data.common.use_templates = True
-        c.data.common.use_template_torsion_angles = True
-        c.model.template.enabled = True
-    elif name == "model_2":
-        # AF2 Suppl. Table 5, Model 1.1.2
-        c.data.common.reduce_max_clusters_by_max_templates = True
-        c.data.common.use_templates = True
-        c.data.common.use_template_torsion_angles = True
-        c.model.template.enabled = True
-    elif name == "model_3":
-        # AF2 Suppl. Table 5, Model 1.2.1
-        c.data.common.max_extra_msa = 5120
-        c.model.template.enabled = False
-    elif name == "model_4":
-        # AF2 Suppl. Table 5, Model 1.2.2
-        c.data.common.max_extra_msa = 5120
-        c.model.template.enabled = False
-    elif name == "model_5":
-        # AF2 Suppl. Table 5, Model 1.2.3
-        c.model.template.enabled = False
-    elif name == "model_1_ptm":
-        c.data.common.max_extra_msa = 5120
-        c.data.common.reduce_max_clusters_by_max_templates = True
-        c.data.common.use_templates = True
-        c.data.common.use_template_torsion_angles = True
-        c.model.template.enabled = True
-        c.model.heads.tm.enabled = True
-        c.loss.tm.weight = 0.1
-    elif name == "model_2_ptm":
-        c.data.common.reduce_max_clusters_by_max_templates = True
-        c.data.common.use_templates = True
-        c.data.common.use_template_torsion_angles = True
-        c.model.template.enabled = True
-        c.model.heads.tm.enabled = True
-        c.loss.tm.weight = 0.1
-    elif name == "model_3_ptm":
-        c.data.common.max_extra_msa = 5120
-        c.model.template.enabled = False
-        c.model.heads.tm.enabled = True
-        c.loss.tm.weight = 0.1
-    elif name == "model_4_ptm":
-        c.data.common.max_extra_msa = 5120
-        c.model.template.enabled = False
-        c.model.heads.tm.enabled = True
-        c.loss.tm.weight = 0.1
-    elif name == "model_5_ptm":
-        c.model.template.enabled = False
-        c.model.heads.tm.enabled = True
-        c.loss.tm.weight = 0.1
+
+    if yaml_config_preset is not None:
+        with open(yaml_config_preset, 'r') as f:
+            yaml_config = yaml.safe_load(f)
+        if yaml_config is not None:
+            recursive_set(c, yaml_config)
+        else:
+            logging.warning("The yaml config is empty!")
     else:
-        raise ValueError("Invalid model name")
+        if name == "initial_training":
+            # AF2 Suppl. Table 4, "initial training" setting
+            pass
+        elif name == "finetuning":
+            # AF2 Suppl. Table 4, "finetuning" setting
+            c.data.common.max_extra_msa = 5120
+            c.data.train.crop_size = 384
+            c.data.train.max_msa_clusters = 512
+            c.loss.violation.weight = 1.
+        elif name == "model_1":
+            # AF2 Suppl. Table 5, Model 1.1.1
+            c.data.common.max_extra_msa = 5120
+            c.data.common.reduce_max_clusters_by_max_templates = True
+            c.data.common.use_templates = True
+            c.data.common.use_template_torsion_angles = True
+            c.model.template.enabled = True
+        elif name == "model_2":
+            # AF2 Suppl. Table 5, Model 1.1.2
+            c.data.common.reduce_max_clusters_by_max_templates = True
+            c.data.common.use_templates = True
+            c.data.common.use_template_torsion_angles = True
+            c.model.template.enabled = True
+        elif name == "model_3":
+            # AF2 Suppl. Table 5, Model 1.2.1
+            c.data.common.max_extra_msa = 5120
+            c.model.template.enabled = False
+        elif name == "model_4":
+            # AF2 Suppl. Table 5, Model 1.2.2
+            c.data.common.max_extra_msa = 5120
+            c.model.template.enabled = False
+        elif name == "model_5":
+            # AF2 Suppl. Table 5, Model 1.2.3
+            c.model.template.enabled = False
+        elif name == "model_1_ptm":
+            c.data.common.max_extra_msa = 5120
+            c.data.common.reduce_max_clusters_by_max_templates = True
+            c.data.common.use_templates = True
+            c.data.common.use_template_torsion_angles = True
+            c.model.template.enabled = True
+            c.model.heads.tm.enabled = True
+            c.loss.tm.weight = 0.1
+        elif name == "model_2_ptm":
+            c.data.common.reduce_max_clusters_by_max_templates = True
+            c.data.common.use_templates = True
+            c.data.common.use_template_torsion_angles = True
+            c.model.template.enabled = True
+            c.model.heads.tm.enabled = True
+            c.loss.tm.weight = 0.1
+        elif name == "model_3_ptm":
+            c.data.common.max_extra_msa = 5120
+            c.model.template.enabled = False
+            c.model.heads.tm.enabled = True
+            c.loss.tm.weight = 0.1
+        elif name == "model_4_ptm":
+            c.data.common.max_extra_msa = 5120
+            c.model.template.enabled = False
+            c.model.heads.tm.enabled = True
+            c.loss.tm.weight = 0.1
+        elif name == "model_5_ptm":
+            c.model.template.enabled = False
+            c.model.heads.tm.enabled = True
+            c.loss.tm.weight = 0.1
+        else:
+            raise ValueError("Invalid model name")
 
     if train:
         c.globals.blocks_per_ckpt = 1
@@ -566,3 +574,35 @@ config = mlc.ConfigDict(
         "ema": {"decay": 0.999},
     }
 )
+
+
+# def test_config(yaml_dir):
+#     jobs = [
+#         "vanilla", "warmup0", "warmup2000", "warmup5000", "warmup10000",
+#         "bs2", "esm1b_cat", "debug",
+#     ]
+#     jobs_openfold = [
+#         "initial_training", "model_1", "model_2", "model_3", "model_4",
+#         "model_5", "model_1_ptm", "model_2_ptm", "model_3_ptm", "model_4_ptm",
+#         "model_5_ptm", "finetuning",
+#     ]
+#     jobs = jobs + jobs_openfold
+    
+#     for job in jobs:
+#         logging.warning(f"testing config={job}")
+#         yaml_dir_ = os.path.join(yaml_dir, "openfold") if job in jobs_openfold else yaml_dir
+#         yaml_path = os.path.join(yaml_dir_, job + ".yml")
+
+#         with open(yaml_path, 'r') as f:
+#             yaml_config = yaml.safe_load(f)
+#         config_1 = model_config(job)
+#         config_2 = model_config("initial_training")
+
+#         assert not config_1 == config_2 or job == "initial_training"
+#         if yaml_config is not None:
+#             recursive_set(config_2, yaml_config)
+#         else:
+#             logging.warning("The yaml config is empty!")
+#         if config_2.data.data_module.data_loaders.batch_size > 1:
+#             config_2.data.eval.crop_size = config_2.data.train.crop_size
+#         assert config_1 == config_2

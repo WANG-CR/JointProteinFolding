@@ -1,0 +1,12 @@
+# AF2 Suppl. Table 4, "finetuning" setting
+
+data:
+  common:
+    max_extra_msa: 5120
+  train:
+    crop_size: 384
+    max_msa_clusters: 512
+
+loss:
+  violation:
+    weight: 1.0

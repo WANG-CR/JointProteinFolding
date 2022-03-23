@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import logging
+logging.basicConfig(level=logging.WARNING)
 import os
 import datetime
 from multiprocessing import cpu_count
@@ -595,6 +597,9 @@ class DataPipeline:
                     an input sequence must be provided.
                     """
                 )
+            logging.warning(
+                "embedding_dir is provided, but no embedding is found in the directory."
+            )
             emb_feats = np.zeros((0, len(input_sequence), padding_size)).astype(np.float32)
         
         else:
