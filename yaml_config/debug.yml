@@ -9,7 +9,7 @@ model:
     enabled: false
 
 scheduler:
-    warmup_no_steps: 0
+    warmup_no_steps: 80
 
 data:
   data_module:

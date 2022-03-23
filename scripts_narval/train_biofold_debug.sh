@@ -22,7 +22,7 @@ python train_biofold.py $TRAIN_DIR/ $TRAIN_DIR/ $TRAIN_DIR/ \
     --precision 16 --gpus 1 --log_every_n_steps 1 \
     --wandb true \
     --wandb_entity chenceshi \
-    --wandb_version test_code \
+    --wandb_version test_code_wm80 \
     --wandb_project wandb_biofold \
     --deepspeed_config_path deepspeed_config_scc.json \
     --sabdab_summary_file $WORK_DIR/database/info/20220319_99_True_All__4_sabdab_summary.tsv \

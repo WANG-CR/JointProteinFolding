@@ -21,12 +21,12 @@ TRAIN_EMBED_DIR=$WORK_DIR/pretrained_embeddings/esm1b/20220319_99_True_All__4_tr
 VALID_EMBED_DIR=$WORK_DIR/pretrained_embeddings/esm1b/20220319_99_True_All__4_valid_merged
 OUTPUT_DIR=$WORK_DIR/output
 
-CONFIG_PRESET=esm1b_cat
+YAML_CONFIG_PRESET=esm1b_cat
 srun python train_biofold.py $TRAIN_DIR/ $TRAIN_DIR/ $TRAIN_DIR/ \
     $OUTPUT_DIR/ \
     2021-12-31 \
     --seed 2022 \
-    --config_preset $CONFIG_PRESET \
+    --yaml_config_preset yaml_config/${YAML_CONFIG_PRESET}.yml \
     --val_data_dir $VALID_DIR/ \
     --val_alignment_dir $VALID_DIR/ \
     --train_embedding_dir $TRAIN_EMBED_DIR/ \

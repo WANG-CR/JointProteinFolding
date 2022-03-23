@@ -7,8 +7,8 @@
 #SBATCH --ntasks-per-node=4
 #SBATCH --time=24:00:00
 #SBATCH --exclusive
-#SBATCH --output=/home/shichenc/scratch/biofold/output/slurm_log/vanilla_v1.out
-#SBATCH --error=/home/shichenc/scratch/biofold/output/slurm_log/vanilla_v1.err
+#SBATCH --output=/home/shichenc/scratch/biofold/output/slurm_log/wm10000_v1.out
+#SBATCH --error=/home/shichenc/scratch/biofold/output/slurm_log/wm10000_v1.err
 #SBATCH --qos=unkillable
 
 ENV_NAME=biofold
@@ -19,7 +19,7 @@ TRAIN_DIR=$WORK_DIR/database/pdb/20220319_99_True_All__4_train
 VALID_DIR=$WORK_DIR/database/pdb/20220319_99_True_All__4_valid
 OUTPUT_DIR=$WORK_DIR/output
 
-YAML_CONFIG_PRESET=vanilla
+YAML_CONFIG_PRESET=wm10000
 srun python train_biofold.py $TRAIN_DIR/ $TRAIN_DIR/ $TRAIN_DIR/ \
     $OUTPUT_DIR/ \
     2021-12-31 \
