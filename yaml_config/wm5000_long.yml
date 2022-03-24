@@ -1,0 +1,13 @@
+model:
+  evoformer_stack:
+    no_blocks: 8
+  structure_module:
+    no_blocks: 8
+  template:
+    enabled: false
+  extra_msa:
+    enabled: false
+    
+scheduler:
+  warmup_no_steps: 5000
+  start_decay_after_n_steps: 25000

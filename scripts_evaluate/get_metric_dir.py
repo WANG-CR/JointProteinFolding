@@ -52,7 +52,8 @@ def main(args):
     for label in results_labels:
         results_dict[label] = []    
     
-    for fname in tqdm(os.listdir(args.pred_dir)):
+    jobs = [x for x in os.listdir(args.pred_dir) if x.endswith('.pdb')]
+    for fname in tqdm(jobs):
         pdbid = fname[:4]
         test_list.append(pdbid)
         pred_pdb_path = os.path.join(args.pred_dir, fname)

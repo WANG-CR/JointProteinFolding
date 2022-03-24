@@ -48,8 +48,9 @@ def renumber_pdb(old_pdb, renum_pdb):
 def main(args):
     if not os.path.exists(args.target_dir):
         os.makedirs(args.target_dir, exist_ok=True)
-        
-    for fname in os.listdir(args.source_dir):
+    
+    jobs = [x for x in os.listdir(args.source_dir) if x.endswith('.pdb')]
+    for fname in jobs:
         pdbid = fname[:4]
         #if pdbid in test_list:
         if 1:            

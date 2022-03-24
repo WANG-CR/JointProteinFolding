@@ -41,7 +41,11 @@ def main(args):
         raise ValueError(f"Unable to find 'latest' file at {latest_path}")
     ckpt_path = os.path.join(args.resume_from_ckpt, tag_, "mp_rank_00_model_states.pt")
     ckpt_epoch = os.path.basename(args.resume_from_ckpt).split('-')[0]
-    state_dict = torch.load(ckpt_path, map_location="cpu")["ema"]["params"]
+    if args.ema:
+        state_dict = torch.load(ckpt_path, map_location="cpu")["ema"]["params"]
+    else:
+        state_dict = torch.load(ckpt_path, map_location="cpu")["module"]
+        state_dict = {k[len("module.model."):]:v for k,v in state_dict.items()}
     model.load_state_dict(state_dict, strict=False)
     model = model.to(args.model_device)
     logging.info(f"Successfully loaded model weights from {ckpt_path}...")
@@ -349,6 +353,10 @@ if __name__ == "__main__":
     parser.add_argument(
         "--relax", type=bool_type, default=True,
         help="Whether to perform the relaxation"
+    )
+    parser.add_argument(
+        "--ema", type=bool_type, default=True,
+        help="Whether to use ema model parameters"
     )
     parser.add_argument(
         "--no_recycling_iters", type=int, default=3,

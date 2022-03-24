@@ -1,0 +1,16 @@
+model:
+  evoformer_stack:
+    no_blocks: 8
+  structure_module:
+    no_blocks: 8
+  template:
+    enabled: false
+  extra_msa:
+    enabled: false
+  residue_emb:
+    enabled: true
+    usage: cat
+
+scheduler:
+  warmup_no_steps: 20000
+  start_decay_after_n_steps: 25000
