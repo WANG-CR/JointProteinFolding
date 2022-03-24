@@ -28,21 +28,16 @@ class AuxiliaryHeads(nn.Module):
     def __init__(self, config):
         super(AuxiliaryHeads, self).__init__()
 
-        self.plddt = PerResidueLDDTCaPredictor(
-            **config["lddt"],
-        )
-
-        self.distogram = DistogramHead(
-            **config["distogram"],
-        )
-
-        self.masked_msa = MaskedMSAHead(
-            **config["masked_msa"],
-        )
-
-        self.experimentally_resolved = ExperimentallyResolvedHead(
-            **config["experimentally_resolved"],
-        )
+        key2head_fn = {
+            "lddt": PerResidueLDDTCaPredictor,
+            "distogram": DistogramHead,
+            "masked_msa": MaskedMSAHead,
+            "experimentally_resolved": ExperimentallyResolvedHead,
+        }
+        for key in key2head_fn:
+            if config[key]["weight"] > 0:
+                attr_name = key if key != "lddt" else "plddt"
+                setattr(self, attr_name, key2head_fn[key](**config[key]))
 
         if config.tm.enabled:
             self.tm = TMScoreHead(
@@ -53,24 +48,36 @@ class AuxiliaryHeads(nn.Module):
 
     def forward(self, outputs):
         aux_out = {}
-        lddt_logits = self.plddt(outputs["sm"]["single"])
-        aux_out["lddt_logits"] = lddt_logits
+        
+        if hasattr(self, "plddt"):
+            # plddt for last step's single representation
+            lddt_logits = self.plddt(outputs["sm"]["single"])
+            aux_out["lddt_logits"] = lddt_logits
+            aux_out["plddt"] = compute_plddt(lddt_logits)
 
-        # Required for relaxation later on
-        aux_out["plddt"] = compute_plddt(lddt_logits)
+            # plddt for each step's single representation
+            lddt_logits = self.plddt(outputs["sm"]["singles"])
+            aux_out["lddt_logits_by_sm_step"] = lddt_logits
+            aux_out["plddt_by_sm_step"] = compute_plddt(lddt_logits)
 
-        distogram_logits = self.distogram(outputs["pair"])
-        aux_out["distogram_logits"] = distogram_logits
+        if hasattr(self, "distogram"):
+            # outputs of evoformer
+            distogram_logits = self.distogram(outputs["pair"])
+            aux_out["distogram_logits"] = distogram_logits
 
-        masked_msa_logits = self.masked_msa(outputs["msa"])
-        aux_out["masked_msa_logits"] = masked_msa_logits
+        if hasattr(self, "masked_msa"):
+            # outputs of evoformer
+            masked_msa_logits = self.masked_msa(outputs["msa"])
+            aux_out["masked_msa_logits"] = masked_msa_logits
 
-        experimentally_resolved_logits = self.experimentally_resolved(
-            outputs["single"]
-        )
-        aux_out[
-            "experimentally_resolved_logits"
-        ] = experimentally_resolved_logits
+        if hasattr(self, "experimentally_resolved"):
+            # outputs of evoformer
+            experimentally_resolved_logits = self.experimentally_resolved(
+                outputs["single"]
+            )
+            aux_out[
+                "experimentally_resolved_logits"
+            ] = experimentally_resolved_logits
 
         if self.config.tm.enabled:
             tm_logits = self.tm(outputs["pair"])

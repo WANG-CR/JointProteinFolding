@@ -661,6 +661,7 @@ class OpenFoldDataModule(pl.LightningDataModule):
                     treat_pdb_as_distillation=True,
                     mode="train",
                     _output_raw=True,
+                    sabdab_summary_file=self.sabdab_summary_file,
                 )
 
                 d_prob = self.config.train.distillation_prob
@@ -697,6 +698,7 @@ class OpenFoldDataModule(pl.LightningDataModule):
                     max_template_hits=self.config.eval.max_template_hits,
                     mode="eval",
                     _output_raw=True,
+                    sabdab_summary_file=self.sabdab_summary_file,
                 )
             else:
                 self.eval_dataset = None

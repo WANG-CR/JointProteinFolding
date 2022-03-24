@@ -53,6 +53,10 @@ source activate biofold
 
 * Mar 22. Store config in YAML format.
 
+* Mar 22. Fix `batch_size = 1`, tune warmup in `{0, 1000, 2000, 5000, 10000}`.
+
+* Mar 23. Use dummy `all_frames_to_global` and `pred_xyz` to save time if it is not the last step during the training.
+
 ## Prepare Datasets and Benchmarks*
 
 For convenience, we provide a script that downloads,  and processes the datasets for training, as well as the benchmarks for evaluation.

@@ -18,6 +18,8 @@ import torch
 import torch.nn as nn
 from typing import Optional, Tuple
 
+from zmq import device
+
 from openfold.model.primitives import Linear, LayerNorm, ipa_point_weights_init_
 from openfold.np.residue_constants import (
     restype_rigid_group_default_frame,
@@ -648,26 +650,43 @@ class StructureModule(nn.Module):
 
             # [*, N, 7, 2]
             unnormalized_angles, angles = self.angle_resnet(s, s_initial)
-
-            all_frames_to_global = self.torsion_angles_to_frames(
-                backb_to_global,
-                angles,
-                aatype,
-            )
-
-            pred_xyz = self.frames_and_literature_positions_to_atom14_pos(
-                all_frames_to_global,
-                aatype,
-            )
-
             scaled_rigids = rigids.scale_translation(self.trans_scale_factor)
-            
+
+            if not self.training or i == (self.no_blocks - 1):
+                all_frames_to_global = self.torsion_angles_to_frames(
+                    backb_to_global,
+                    angles,
+                    aatype,
+                ) # [*, N, 8]
+                pred_xyz = self.frames_and_literature_positions_to_atom14_pos(
+                    all_frames_to_global,
+                    aatype,
+                ) # [*, N, 14, 3]
+                all_frames_to_global = all_frames_to_global.to_tensor_4x4() # [*, N, 8, 4, 4]
+            else:
+                # Use dummy "all_frames_to_global" and "pred_xyz" to
+                # save time if it is not the last step during the training.
+                batch_residue_dims = unnormalized_angles.shape[:-2] # [*, N]
+                all_frames_to_global = torch.zeros(
+                    *batch_residue_dims, 8, 4, 4,
+                    dtype=unnormalized_angles.dtype,
+                    device=unnormalized_angles.device,
+                    requires_grad=self.training,
+                ) # [*, N, 8, 4, 4]
+                pred_xyz = torch.zeros(
+                    *batch_residue_dims, 14, 3,
+                    dtype=unnormalized_angles.dtype,
+                    device=unnormalized_angles.device,
+                    requires_grad=self.training,
+                ) # [*, N, 14, 3]
+
             preds = {
-                "frames": scaled_rigids.to_tensor_7(),
-                "sidechain_frames": all_frames_to_global.to_tensor_4x4(),
-                "unnormalized_angles": unnormalized_angles,
-                "angles": angles,
-                "positions": pred_xyz,
+                "frames": scaled_rigids.to_tensor_7(), # [*, N, 7]
+                "unnormalized_angles": unnormalized_angles, # [*, N, 7, 2]
+                "angles": angles, # [*, N, 7, 2]
+                "singles": s, # [*, N, C_s]
+                "sidechain_frames": all_frames_to_global, # [*, N, 8, 4, 4]
+                "positions": pred_xyz, # [*, N, 14, 3]
             }
 
             outputs.append(preds)

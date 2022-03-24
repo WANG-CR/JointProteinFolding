@@ -1637,7 +1637,7 @@ class AlphaFoldLoss(nn.Module):
                 self.config.fape,
             ),
             "lddt": lambda: lddt_loss(
-                logits=out["lddt_logits"],
+                logits=out["lddt_logits"], # final step in the structure module
                 all_atom_pred_pos=out["final_atom_positions"],
                 **{**batch, **self.config.lddt},
             ),
@@ -1646,7 +1646,7 @@ class AlphaFoldLoss(nn.Module):
                 **{**batch, **self.config.masked_msa},
             ),
             "supervised_chi": lambda: supervised_chi_loss(
-                out["sm"]["angles"],
+                out["sm"]["angles"], # each step in the structure module
                 out["sm"]["unnormalized_angles"],
                 **{**batch, **self.config.supervised_chi},
             ),

@@ -16,6 +16,7 @@
 from functools import partial
 import torch
 import torch.nn as nn
+import copy
 
 from openfold.utils.feats import (
     pseudo_beta_fn,
@@ -185,13 +186,9 @@ class AlphaFold(nn.Module):
 
         # This needs to be done manually for DeepSpeed's sake
         dtype = next(self.parameters()).dtype
-        #print(dtype)
         for k in feats:
             if(feats[k].dtype == torch.float32):
-                #print(feats[k].dtype)
                 feats[k] = feats[k].to(dtype=dtype)
-                #print(feats[k].dtype)
-            assert not torch.isnan(feats[k]).any() and not torch.isinf(feats[k]).any()
         # Grab some data about the input
         batch_dims = feats["target_feat"].shape[:-2]
         no_batch_dims = len(batch_dims)
@@ -214,7 +211,7 @@ class AlphaFold(nn.Module):
             feats["msa_feat"],
             feats["residue_emb"],
         )
-        assert not torch.isnan(m).any() and not torch.isinf(m).any()
+
         # Initialize the recycling embeddings, if needs be
         if None in [m_1_prev, z_prev, x_prev]:
             # [*, N, C_m]
@@ -246,7 +243,6 @@ class AlphaFold(nn.Module):
             z_prev,
             x_prev,
         )
-        assert not torch.isnan(m_1_prev_emb).any() and not torch.isinf(m_1_prev_emb).any()
         # If the number of recycling iterations is 0, skip recycling
         # altogether. We zero them this way instead of computing them
         # conditionally to avoid leaving parameters unused, which has annoying
@@ -257,7 +253,6 @@ class AlphaFold(nn.Module):
 
         # [*, S_c, N, C_m]
         m[..., 0, :, :] = m[..., 0, :, :] + m_1_prev_emb
-        assert not torch.isnan(m).any() and not torch.isinf(m).any()
 
         # [*, N, N, C_z]
         z = z + z_prev_emb
@@ -329,8 +324,6 @@ class AlphaFold(nn.Module):
         # m: [*, S, N, C_m]
         # z: [*, N, N, C_z]
         # s: [*, N, C_s]
-        assert not torch.isnan(m).any() and not torch.isinf(m).any()
-        assert not torch.isnan(z).any() and not torch.isinf(z).any()
         m, z, s = self.evoformer(
             m,
             z,
@@ -339,9 +332,6 @@ class AlphaFold(nn.Module):
             chunk_size=self.globals.chunk_size,
             _mask_trans=self.config._mask_trans,
         )
-        assert not torch.isnan(m).any() and not torch.isinf(m).any()
-        assert not torch.isnan(z).any() and not torch.isinf(z).any()
-        assert not torch.isnan(s).any() and not torch.isinf(s).any()
 
         outputs["msa"] = m[..., :n_seq, :, :]
         outputs["pair"] = z
@@ -452,6 +442,8 @@ class AlphaFold(nn.Module):
 
         # Main recycling loop
         num_iters = batch["aatype"].shape[-1]
+        recycle_outputs = []
+        
         for cycle_no in range(num_iters):
             # Select the features for the current recycling cycle
             fetch_cur_batch = lambda t: t[..., cycle_no]
@@ -474,8 +466,12 @@ class AlphaFold(nn.Module):
                     x_prev,
                     _recycle=(num_iters > 1)
                 )
+                outputs.update(self.aux_heads(outputs))
+                recycle_outputs.append(outputs)
 
         # Run auxiliary heads
-        outputs.update(self.aux_heads(outputs))
+        outputs = copy.copy(outputs)
+        # outputs.update(self.aux_heads(outputs)) done in the loop
+        outputs["recycle_outputs"] = recycle_outputs
 
         return outputs
