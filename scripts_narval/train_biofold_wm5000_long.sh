@@ -5,7 +5,7 @@
 #SBATCH --gres=gpu:4
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=4
-#SBATCH --time=72:00:00
+#SBATCH --time=24:00:00
 #SBATCH --exclusive
 #SBATCH --output=/home/shichenc/scratch/biofold/output/slurm_log/wm5000_long_v1.out
 #SBATCH --error=/home/shichenc/scratch/biofold/output/slurm_log/wm5000_long_v1.err

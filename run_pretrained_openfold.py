@@ -1,6 +1,6 @@
 # Copyright 2021 AlQuraishi Laboratory
 # Copyright 2021 DeepMind Technologies Limited
-# 
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -13,34 +13,33 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from scripts.utils import add_data_args
+from openfold.utils.tensor_utils import (
+    tensor_tree_map,
+)
+from openfold.utils.import_weights import (
+    import_jax_weights_,
+)
+from openfold.np import residue_constants, protein
+from openfold.model.torchscript import script_preset_
+from openfold.model.model import AlphaFold
+from openfold.data import templates, feature_pipeline, data_pipeline
+from openfold.config import model_config
+import debugger
+import torch
+import time
+import sys
+import random
+import pickle
+import os
+import numpy as np
 import argparse
 from datetime import date
 import logging
 logging.basicConfig(level=logging.INFO)
-import numpy as np
-import os
 
-import pickle
-import random
-import sys
-import time
-import torch
-import debugger
 
-from openfold.config import model_config
-from openfold.data import templates, feature_pipeline, data_pipeline
-from openfold.model.model import AlphaFold
-from openfold.model.torchscript import script_preset_
-from openfold.np import residue_constants, protein
 # import openfold.np.relax.relax as relax
-from openfold.utils.import_weights import (
-    import_jax_weights_,
-)
-from openfold.utils.tensor_utils import (
-    tensor_tree_map,
-)
-
-from scripts.utils import add_data_args
 
 
 def main(args):
@@ -48,7 +47,7 @@ def main(args):
     model = AlphaFold(config)
     model = model.eval()
     import_jax_weights_(model, args.param_path, version=args.model_name)
-    #script_preset_(model)
+    # script_preset_(model)
     model = model.to(args.model_device)
 
     template_featurizer = None
@@ -66,7 +65,7 @@ def main(args):
             "'template_featurizer' is set as None."
         )
 
-    use_small_bfd=(args.bfd_database_path is None)
+    use_small_bfd = (args.bfd_database_path is None)
 
     data_processor = data_pipeline.DataPipeline(
         template_featurizer=template_featurizer,
@@ -98,25 +97,26 @@ def main(args):
 
         # A work around for antibody: find potential chain_index
         if seq[0] == "X":
-            raise ValueError(f"seq should not begin with residue type X, found {seq}...")
+            raise ValueError(
+                f"seq should not begin with residue type X, found {seq}...")
         maybe_chain_index = []
         chain_count = 0
         for i, res in enumerate(seq):
-            if res != "X": 
+            if res != "X":
                 maybe_chain_index.append(chain_count)
             else:
                 maybe_chain_index.append(61)
                 if seq[i-1] != "X":
                     chain_count += 1
         maybe_chain_index = np.array(maybe_chain_index)
-        
-        logging.info("Generating features...") 
+
+        logging.info("Generating features...")
         local_alignment_dir = os.path.join(alignment_dir, tag)
-        
+
         if(args.use_precomputed_alignments is None):
             if not os.path.exists(local_alignment_dir):
                 os.makedirs(local_alignment_dir)
-            
+
             alignment_runner = data_pipeline.AlignmentRunner(
                 jackhmmer_binary_path=args.jackhmmer_binary_path,
                 hhblits_binary_path=args.hhblits_binary_path,
@@ -132,12 +132,13 @@ def main(args):
             alignment_runner.run(
                 fasta_path, local_alignment_dir
             )
-            
-        else: # a workaround for prediction without MSAs
+
+        else:  # a workaround for prediction without MSAs
             if not os.path.exists(local_alignment_dir):
                 local_alignment_dir = alignment_dir
-                logging.info("MSAs not found. Performing prediction without MSAs...")
-                
+                logging.info(
+                    "MSAs not found. Performing prediction without MSAs...")
+
         feature_dict = data_processor.process_fasta(
             fasta_path=fasta_path,
             alignment_dir=local_alignment_dir,
@@ -152,43 +153,43 @@ def main(args):
         processed_feature_dict = feature_processor.process_features(
             feature_dict, mode='predict',
         )
-    
+
         logging.info("Executing model...")
         batch = processed_feature_dict
         with torch.no_grad():
             batch = {
-                k:torch.as_tensor(v, device=args.model_device) 
-                for k,v in batch.items()
+                k: torch.as_tensor(v, device=args.model_device)
+                for k, v in batch.items()
             }
-        
+
             t = time.perf_counter()
             out = model(batch)
             logging.info(f"Inference time: {time.perf_counter() - t}")
-       
+
         # Toss out the recycling dimensions --- we don't need them anymore
         batch = tensor_tree_map(lambda x: np.array(x[..., -1].cpu()), batch)
         out = tensor_tree_map(lambda x: np.array(x.cpu()), out)
-        
+
         plddt = out["plddt"]
         mean_plddt = np.mean(plddt)
-        
+
         plddt_b_factors = np.repeat(
             plddt[..., None], residue_constants.atom_type_num, axis=-1
         )
-    
+
         unrelaxed_protein = protein.from_prediction(
             features=batch,
             result=out,
             b_factors=plddt_b_factors,
             chain_index=maybe_chain_index
         )
-        
+
         # Save the unrelaxed PDB.
         unrelaxed_output_path = os.path.join(
             args.output_dir, f'{tag}_{args.model_name}_rec{args.no_recycling_iters}_unrelaxed.pdb'
         )
         with open(unrelaxed_output_path, 'w') as f:
-            f.write(protein.to_pdb(unrelaxed_protein))        
+            f.write(protein.to_pdb(unrelaxed_protein))
 
         if args.relax:
             if "relax" not in sys.modules:
@@ -206,10 +207,11 @@ def main(args):
                 if("cuda" in args.model_device):
                     device_no = args.model_device.split(":")[-1]
                     os.environ["CUDA_VISIBLE_DEVICES"] = device_no
-                relaxed_pdb_str, _, _ = amber_relaxer.process(prot=unrelaxed_protein)
+                relaxed_pdb_str, _, _ = amber_relaxer.process(
+                    prot=unrelaxed_protein)
                 os.environ["CUDA_VISIBLE_DEVICES"] = visible_devices
                 logging.info(f"Relaxation time: {time.perf_counter() - t}")
-                
+
                 # Save the relaxed PDB.
                 relaxed_output_path = os.path.join(
                     args.output_dir, f'{tag}_{args.model_name}_rec{args.no_recycling_iters}_relaxed.pdb'
@@ -289,7 +291,7 @@ if __name__ == "__main__":
 
     if(args.param_path is None):
         args.param_path = os.path.join(
-            "openfold", "resources", "params", 
+            "openfold", "resources", "params",
             "params_" + args.model_name + ".npz"
         )
 

@@ -1,3 +1,4 @@
+import pyrosetta
 import argparse
 import os
 import numpy as np
@@ -7,7 +8,6 @@ from tqdm import tqdm
 
 import logging
 logging.basicConfig(level=logging.INFO)
-import pyrosetta
 
 
 def get_ab_metrics(pose_1, pose_2):
@@ -39,8 +39,8 @@ def get_pair_results(pred_pdb, native_pdb):
 def main(args):
 
     init_string = "-mute all -check_cdr_chainbreaks false -detect_disulf true"
-    pyrosetta.init(init_string)        
-            
+    pyrosetta.init(init_string)
+
     test_list = []
     metrics = []
     bad_pdbs = []
@@ -50,8 +50,8 @@ def main(args):
     ]
     results_dict = {}
     for label in results_labels:
-        results_dict[label] = []    
-    
+        results_dict[label] = []
+
     jobs = [x for x in os.listdir(args.pred_dir) if x.endswith('.pdb')]
     for fname in tqdm(jobs):
         pdbid = fname[:4]
@@ -71,10 +71,11 @@ def main(args):
         for metric_name, metric_value in res.items():
             results_dict[metric_name].append(metric_value)
     for metric_name, metric_value in results_dict.items():
-        print("{}{}".format(metric_name.ljust(12), round(sum(metric_value)/len(metric_value), 3)))       
+        print("{}{}".format(metric_name.ljust(12), round(
+            sum(metric_value)/len(metric_value), 3)))
     logging.info(f"bad pdbs: {bad_pdbs}")
-     
-        
+
+
 def bool_type(bool_str: str):
     bool_str_lower = bool_str.lower()
     if bool_str_lower in ('false', 'f', 'no', 'n', '0'):
@@ -82,8 +83,8 @@ def bool_type(bool_str: str):
     elif bool_str_lower in ('true', 't', 'yes', 'y', '1'):
         return True
     else:
-        raise ValueError(f'Cannot interpret {bool_str} as bool')         
-    
+        raise ValueError(f'Cannot interpret {bool_str} as bool')
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

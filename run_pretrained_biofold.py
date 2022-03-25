@@ -1,24 +1,22 @@
+from openfold.utils.tensor_utils import tensor_tree_map
+from openfold.utils.feats import atom14_to_atom37
+from openfold.utils.seed import seed_everything
+from openfold.utils.loss import lddt_ca
+from openfold.np import residue_constants, protein
+from openfold.model.model import AlphaFold
+from openfold.data import feature_pipeline, data_pipeline, parsers
+from openfold.config import model_config
+import debugger
+import torch
+from matplotlib import ticker
+from matplotlib import pyplot as plt
+import numpy as np
 import os
 import sys
 import time
 import argparse
 import logging
 logging.basicConfig(level=logging.INFO)
-import numpy as np
-from matplotlib import pyplot as plt
-from matplotlib import ticker
-
-import torch
-import debugger
-
-from openfold.config import model_config
-from openfold.data import feature_pipeline, data_pipeline, parsers
-from openfold.model.model import AlphaFold
-from openfold.np import residue_constants, protein
-from openfold.utils.loss import lddt_ca
-from openfold.utils.seed import seed_everything
-from openfold.utils.feats import atom14_to_atom37
-from openfold.utils.tensor_utils import tensor_tree_map
 
 
 def main(args):
@@ -31,7 +29,7 @@ def main(args):
     )
     model = AlphaFold(config)
     model = model.eval()
-    
+
     # Load the checkpoint
     latest_path = os.path.join(args.resume_from_ckpt, 'latest')
     if os.path.isfile(latest_path):
@@ -39,32 +37,34 @@ def main(args):
             tag_ = fd.read().strip()
     else:
         raise ValueError(f"Unable to find 'latest' file at {latest_path}")
-    ckpt_path = os.path.join(args.resume_from_ckpt, tag_, "mp_rank_00_model_states.pt")
+    ckpt_path = os.path.join(args.resume_from_ckpt,
+                             tag_, "mp_rank_00_model_states.pt")
     ckpt_epoch = os.path.basename(args.resume_from_ckpt).split('-')[0]
     if args.ema:
         state_dict = torch.load(ckpt_path, map_location="cpu")["ema"]["params"]
     else:
         state_dict = torch.load(ckpt_path, map_location="cpu")["module"]
-        state_dict = {k[len("module.model."):]:v for k,v in state_dict.items()}
+        state_dict = {k[len("module.model."):]: v for k,
+                      v in state_dict.items()}
     model.load_state_dict(state_dict, strict=False)
     model = model.to(args.model_device)
     logging.info(f"Successfully loaded model weights from {ckpt_path}...")
-    
+
     # Prepare data
     template_featurizer = None
     logging.warning(
         "'template_featurizer' is set as None."
     )
-    
+
     data_processor = data_pipeline.DataPipeline(
         template_featurizer=template_featurizer,
     )
     feature_processor = feature_pipeline.FeaturePipeline(config.data)
-    
+
     output_dir_base = args.output_dir
     if not os.path.exists(output_dir_base):
         os.makedirs(output_dir_base)
-    
+
     if(args.use_precomputed_alignments is None):
         alignment_dir = output_dir_base
     else:
@@ -74,7 +74,8 @@ def main(args):
         try:
             import pyrosetta
             from pyrosetta.rosetta.protocols.antibody import CDRNameEnum
-            pyrosetta.init("-mute all -check_cdr_chainbreaks false -detect_disulf true")
+            pyrosetta.init(
+                "-mute all -check_cdr_chainbreaks false -detect_disulf true")
         except Exception as err:
             logging.warning(err)
 
@@ -102,8 +103,8 @@ def main(args):
     batch = processed_feature_dict
     with torch.no_grad():
         batch = {
-            k:torch.as_tensor(v, device=args.model_device) 
-            for k,v in batch.items()
+            k: torch.as_tensor(v, device=args.model_device)
+            for k, v in batch.items()
         }
         t = time.perf_counter()
         out = model(batch)
@@ -113,12 +114,12 @@ def main(args):
         pdb_file = os.path.join(args.pdb_path, f"{tag}.pdb")
         with open(pdb_file, "r") as fin:
             pdb_str = fin.read()
-        protein_object = protein.from_pdb_string_antibody(pdb_str)                
+        protein_object = protein.from_pdb_string_antibody(pdb_str)
         loop_index = np.copy(protein_object.loop_index)
 
         starts = []
         ends = []
-        
+
         if loop_index is None:
             gt_pose = pyrosetta.pose_from_pdb(pdb_file)
             gt_ab = pyrosetta.rosetta.protocols.antibody.AntibodyInfo(gt_pose)
@@ -145,35 +146,40 @@ def main(args):
                 # + 1: residue index starts from 1 in plot.
                 # +- 2: exclude anchor residues on both sides.
                 starts.append(
-                    np.where(loop_index == loop_idx)[0][0] + 1 + 2 - h_len * (loop_idx >= 4)
+                    np.where(loop_index == loop_idx)[
+                        0][0] + 1 + 2 - h_len * (loop_idx >= 4)
                 )
                 ends.append(
-                    np.where(loop_index == loop_idx)[0][-1] + 1 - 2 - h_len * (loop_idx >= 4)
+                    np.where(loop_index == loop_idx)[
+                        0][-1] + 1 - 2 - h_len * (loop_idx >= 4)
                 )
 
         # lddt at each step in the last recycle, step_size = 8
-        all_atom_pred_pos = out["sm"]["positions"] # [8, *, N, 14, 3] --> [8, N, 14, 3]
+        # [8, *, N, 14, 3] --> [8, N, 14, 3]
+        all_atom_pred_pos = out["sm"]["positions"]
         all_atom_pred_pos = atom14_to_atom37(
             all_atom_pred_pos,
             tensor_tree_map(lambda t: t[..., -1][None], batch)
-        ) # [8, N, 37, 3]
-        all_atom_positions = torch.tensor(protein_object.atom_positions).to(all_atom_pred_pos) # [N, 37, 3]
-        all_atom_mask = torch.tensor(protein_object.atom_mask).to(all_atom_pred_pos) # [N, 37]
+        )  # [8, N, 37, 3]
+        all_atom_positions = torch.tensor(protein_object.atom_positions).to(
+            all_atom_pred_pos)  # [N, 37, 3]
+        all_atom_mask = torch.tensor(protein_object.atom_mask).to(
+            all_atom_pred_pos)  # [N, 37]
         sm_lddt = lddt_ca(
             all_atom_pred_pos, all_atom_positions[None], all_atom_mask[None],
             eps=config.globals.eps,
-            per_residue=True) * 100 # [8, N]
-        
+            per_residue=True) * 100  # [8, N]
+
         # lddt at each final step in each recycle, no_recycle = 3
         all_atom_pred_pos = torch.stack(
             [out_["final_atom_positions"] for out_ in out["recycle_outputs"]], dim=0
-        ) # [4, *, N, 37, 3]
+        )  # [4, *, N, 37, 3]
         recycle_lddt = lddt_ca(
             all_atom_pred_pos, all_atom_positions[None], all_atom_mask[None],
             eps=config.globals.eps,
             per_residue=True,
-        ) * 100 # [4, *, N]
-        
+        ) * 100  # [4, *, N]
+
         step_lddts = [np.array(sm_lddt.cpu()), np.array(recycle_lddt.cpu())]
 
     # Toss out the recycling dimensions --- we don't need them anymore
@@ -186,17 +192,18 @@ def main(args):
     if args.pdb_path:
         # plot plddt curve w.r.t. residue & step
         step_plddts = [
-            out["plddt_by_sm_step"], # by step (last recyle)
+            out["plddt_by_sm_step"],  # by step (last recyle)
             np.stack(
                 [out_["plddt"] for out_ in out["recycle_outputs"]], axis=0
-            ) # by recycle (last step)
+            )  # by recycle (last step)
         ]
         legends = [
             ["step %d" % i for i in range(len(out["plddt_by_sm_step"]))]
         ]
         paths = ["plddt_by_sm_step"]
 
-        legends.append(["recycle %d" % i for i in range(len(out["recycle_outputs"]))])
+        legends.append(
+            ["recycle %d" % i for i in range(len(out["recycle_outputs"]))])
         paths.append("plddt_by_recycle")
 
         max_lines = 10
@@ -218,8 +225,10 @@ def main(args):
             lines = []
             legend = [legends[i][s] for s in steps]
             for j in range(len(steps)):
-                line = ax.plot(x, step_plddt[steps[j], :h_len], linewidth=1, color="C%d" % j)[0]
-                ax.plot(x, step_lddt[steps[j], :h_len], linestyle="dotted", linewidth=1, color="C%d" % j)
+                line = ax.plot(
+                    x, step_plddt[steps[j], :h_len], linewidth=1, color="C%d" % j)[0]
+                ax.plot(x, step_lddt[steps[j], :h_len],
+                        linestyle="dotted", linewidth=1, color="C%d" % j)
                 lines.append(line)
             ax.legend(lines, legend, loc="lower left")
             ax.xaxis.set_major_locator(ticker.MultipleLocator(10))
@@ -238,8 +247,10 @@ def main(args):
             x = np.arange(1, l_len + 1)
             lines = []
             for j in range(len(steps)):
-                line = ax.plot(x, step_plddt[steps[j], h_len:], linewidth=1, color="C%d" % j)[0]
-                ax.plot(x, step_lddt[steps[j], h_len:], linestyle="dotted", linewidth=1, color="C%d" % j)
+                line = ax.plot(
+                    x, step_plddt[steps[j], h_len:], linewidth=1, color="C%d" % j)[0]
+                ax.plot(x, step_lddt[steps[j], h_len:],
+                        linestyle="dotted", linewidth=1, color="C%d" % j)
                 lines.append(line)
             ax.legend(lines, legend, loc="lower left")
             ax.xaxis.set_major_locator(ticker.MultipleLocator(10))
@@ -302,10 +313,11 @@ def main(args):
             if("cuda" in args.model_device):
                 device_no = args.model_device.split(":")[-1]
                 os.environ["CUDA_VISIBLE_DEVICES"] = device_no
-            relaxed_pdb_str, _, _ = amber_relaxer.process(prot=unrelaxed_protein)
+            relaxed_pdb_str, _, _ = amber_relaxer.process(
+                prot=unrelaxed_protein)
             os.environ["CUDA_VISIBLE_DEVICES"] = visible_devices
             logging.info(f"Relaxation time: {time.perf_counter() - t}")
-            
+
             # Save the relaxed PDB.
             relaxed_output_path = os.path.join(
                 args.output_dir,
@@ -410,10 +422,12 @@ if __name__ == "__main__":
 
     if(args.yaml_config_preset is not None):
         if not os.path.exists(args.yaml_config_preset):
-            raise FileNotFoundError(f"{os.path.abspath(args.yaml_config_preset)}")
+            raise FileNotFoundError(
+                f"{os.path.abspath(args.yaml_config_preset)}")
         args.config_preset = os.path.splitext(
             os.path.basename(args.yaml_config_preset)
         )[0]
-        logging.info(f"the config_preset is set as {args.config_preset} by yaml_config_preset.")
+        logging.info(
+            f"the config_preset is set as {args.config_preset} by yaml_config_preset.")
 
     main(args)
