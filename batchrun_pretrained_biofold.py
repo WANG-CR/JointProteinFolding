@@ -1,11 +1,5 @@
-from openfold.utils.tensor_utils import tensor_tree_map
-from openfold.utils.feats import atom14_to_atom37
-from openfold.utils.seed import seed_everything
-from openfold.utils.loss import lddt_ca
-from openfold.np import residue_constants, protein
-from openfold.model.model import AlphaFold
-from openfold.data import feature_pipeline, data_pipeline, parsers
-from openfold.config import model_config
+import logging
+logging.basicConfig(level=logging.INFO)
 import debugger
 import torch
 from matplotlib import ticker
@@ -15,8 +9,15 @@ import os
 import sys
 import time
 import argparse
-import logging
-logging.basicConfig(level=logging.INFO)
+
+from openfold.utils.tensor_utils import tensor_tree_map
+from openfold.utils.feats import atom14_to_atom37
+from openfold.utils.seed import seed_everything
+from openfold.utils.loss import lddt_ca
+from openfold.np import residue_constants, protein
+from openfold.model.model import AlphaFold
+from openfold.data import feature_pipeline, data_pipeline, parsers
+from openfold.config import model_config
 
 
 def gather_jobs(fasta_path, mode=0):

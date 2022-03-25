@@ -265,7 +265,7 @@ def main(args):
     callbacks = []
     if(args.checkpoint_every_epoch):
         mc = ModelCheckpoint(
-            filename="epoch{epoch:02d}-step{step}-val_loss={val/loss:.2f}",
+            filename="epoch{epoch:02d}-step{step}-val_loss={val/loss:.3f}",
             auto_insert_metric_name=False,
             monitor="val/loss",
             mode="min",

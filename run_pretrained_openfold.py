@@ -12,6 +12,18 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import debugger
+import logging
+logging.basicConfig(level=logging.INFO)
+import torch
+import time
+import sys
+import random
+import pickle
+import os
+import numpy as np
+import argparse
+from datetime import date
 
 from scripts.utils import add_data_args
 from openfold.utils.tensor_utils import (
@@ -25,21 +37,6 @@ from openfold.model.torchscript import script_preset_
 from openfold.model.model import AlphaFold
 from openfold.data import templates, feature_pipeline, data_pipeline
 from openfold.config import model_config
-import debugger
-import torch
-import time
-import sys
-import random
-import pickle
-import os
-import numpy as np
-import argparse
-from datetime import date
-import logging
-logging.basicConfig(level=logging.INFO)
-
-
-# import openfold.np.relax.relax as relax
 
 
 def main(args):

@@ -1,12 +1,6 @@
-from openfold.utils.tensor_utils import tensor_tree_map
-from openfold.utils.feats import atom14_to_atom37
-from openfold.utils.seed import seed_everything
-from openfold.utils.loss import lddt_ca
-from openfold.np import residue_constants, protein
-from openfold.model.model import AlphaFold
-from openfold.data import feature_pipeline, data_pipeline, parsers
-from openfold.config import model_config
 import debugger
+import logging
+logging.basicConfig(level=logging.INFO)
 import torch
 from matplotlib import ticker
 from matplotlib import pyplot as plt
@@ -15,8 +9,15 @@ import os
 import sys
 import time
 import argparse
-import logging
-logging.basicConfig(level=logging.INFO)
+
+from openfold.utils.tensor_utils import tensor_tree_map
+from openfold.utils.feats import atom14_to_atom37
+from openfold.utils.seed import seed_everything
+from openfold.utils.loss import lddt_ca
+from openfold.np import residue_constants, protein
+from openfold.model.model import AlphaFold
+from openfold.data import feature_pipeline, data_pipeline, parsers
+from openfold.config import model_config
 
 
 def main(args):
@@ -61,15 +62,6 @@ def main(args):
     )
     feature_processor = feature_pipeline.FeaturePipeline(config.data)
 
-    output_dir_base = args.output_dir
-    if not os.path.exists(output_dir_base):
-        os.makedirs(output_dir_base)
-
-    if(args.use_precomputed_alignments is None):
-        alignment_dir = output_dir_base
-    else:
-        alignment_dir = args.use_precomputed_alignments
-
     if args.pdb_path:
         try:
             import pyrosetta
@@ -87,10 +79,25 @@ def main(args):
     chain_index = np.array([0] * len(input_seqs[0]) + [1] * len(input_seqs[1]))
     h_len, l_len = len(input_seqs[0]), len(input_seqs[1])
 
+    output_dir_base = args.output_dir
+    if not os.path.exists(output_dir_base):
+        os.makedirs(output_dir_base)
+
+    if(args.use_precomputed_alignments is None):
+        alignment_dir = output_dir_base
+    else:
+        alignment_dir = os.path.join(args.use_precomputed_alignments, tag)
+    if(args.residue_embedding_dir is None):
+        residue_embedding_dir = None
+    else:
+        residue_embedding_dir = os.path.join(
+            args.residue_embedding_dir, tag
+        )
+
     feature_dict = data_processor.process_fasta(
         fasta_path=args.fasta_path,
         alignment_dir=alignment_dir,
-        embedding_dir=args.residue_embedding_dir,
+        embedding_dir=residue_embedding_dir,
         _alignment_index=None,
         is_antibody=True,
     )
@@ -190,7 +197,7 @@ def main(args):
     mean_plddt = np.mean(plddt)
 
     if args.pdb_path:
-        # plot plddt curve w.r.t. residue & step
+        logging.info("Drawing plddt curve w.r.t. residue & step...")
         step_plddts = [
             out["plddt_by_sm_step"],  # by step (last recyle)
             np.stack(

@@ -1585,7 +1585,7 @@ def compute_drmsd(structure_1, structure_2, mask=None):
         n = torch.sum(mask, dim=-1) # [*, ]
 
     # drmsd = drmsd * (1 / (n * (n - 1))) if n > 1 else 0.
-    denom = 1 / torch.clamp(n * (n - 1), min=1) # avoid dividing 0.
+    denom = torch.clamp(n * (n - 1), min=1) # avoid dividing 0.
     drmsd = torch.where(n > 1, drmsd * (1 / denom), torch.zeros_like(drmsd))
     drmsd = torch.sqrt(drmsd) # [*, ]
 

@@ -183,11 +183,11 @@ python scripts_evaluate/get_metric_dir.py \
 
 ## Training of BioFold*
 
-See `scripts_narval/train_biofold_vanilla.sh`
+See `scripts_narval/train/`
 
-## [TODO] (Batch) Inference of BioFold*
+## (Batch) Inference of BioFold*
 
----
+See `scripts_narval/inference/`
 
 # OpenFold
 

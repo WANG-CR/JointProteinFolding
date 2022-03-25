@@ -3,7 +3,7 @@ module load cuda/11.4
 source activate $ENV_NAME
 WORK_DIR=$SCRATCH/biofold
 
-YAML_CONFIG_PRESET=wm5000
+YAML_CONFIG_PRESET=wm5000_long_esm
 VERSION=narval_v1
 python scripts_evaluate/renumber_dir.py \
     $WORK_DIR/output/rosetta_benchmark/${YAML_CONFIG_PRESET}-${VERSION} \
