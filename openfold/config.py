@@ -340,9 +340,9 @@ config = mlc.ConfigDict(
             "eps": 1e-5,
         },
         "scheduler": {
-            "warmup_no_steps": 1000,
-            "start_decay_after_n_steps": 50000,
-            "decay_every_n_steps": 5000,
+            "warmup_no_steps": 5000,
+            "start_decay_after_n_steps": 10000,
+            "decay_every_n_steps": 1000,
             "decay_factor": 0.95,
         },
         "model": {
