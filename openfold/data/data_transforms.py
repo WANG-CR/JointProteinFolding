@@ -889,6 +889,24 @@ def atom37_to_frames(protein, eps=1e-8):
     gt_frames_tensor = gt_frames.to_tensor_4x4()
     alt_gt_frames_tensor = alt_gt_frames.to_tensor_4x4()
 
+    if "pred_atom_positions" in protein:
+        pred_atom_positions = protein["pred_atom_positions"]
+        pred_atom_pos = batched_gather(
+            pred_atom_positions,
+            residx_rigidgroup_base_atom37_idx,
+            dim=-2,
+            no_batch_dims=len(pred_atom_positions.shape[:-2]),
+        )
+        pred_frames = Rigid.from_3_points(
+            p_neg_x_axis=pred_atom_pos[..., 0, :],
+            origin=pred_atom_pos[..., 1, :],
+            p_xy_plane=pred_atom_pos[..., 2, :],
+            eps=eps,
+        )
+        pred_frames = pred_frames.compose(Rigid(rots, None))
+        pred_frames_tensor = pred_frames.to_tensor_4x4()
+        protein["rigidgroups_pred_frames"] = pred_frames_tensor
+
     protein["rigidgroups_gt_frames"] = gt_frames_tensor
     protein["rigidgroups_gt_exists"] = gt_exists
     protein["rigidgroups_group_exists"] = group_exists
@@ -1105,6 +1123,53 @@ def get_backbone_frames(protein):
     ).to_tensor_7()
     protein["backbone_rigid_mask"] = protein["rigidgroups_gt_exists"][..., 0]
 
+    if "rigidgroups_pred_frames" in protein:
+        protein["backbone_pred_rigid_7s"] = Rigid.from_tensor_4x4(
+            protein["rigidgroups_pred_frames"][..., 0, :, :]
+        ).to_tensor_7()
+
+    return protein
+
+
+@curry1
+def get_noisy_frames(protein, noise_scale=-1, max_noise_scale=1, use_pred_prob=0):
+    assert max_noise_scale <= 1
+
+    def _rand():
+        return float(torch.rand(
+                (1,),
+                device=protein["seq_length"].device
+        )[0])
+    def _rand_axis_like(tensor):
+        theta = 2 * np.pi * torch.rand_like(tensor[..., 0])
+        phi = torch.arccos(2 * torch.rand_like(tensor[..., 0]) - 1)
+        axis = torch.stack([
+            torch.cos(theta) * torch.sin(phi),
+            torch.sin(theta) * torch.sin(phi),
+            torch.cos(phi)
+        ], dim=-1)
+        return axis
+
+    if _rand() < use_pred_prob and "backbone_pred_rigid_7s" in protein:
+        rigid = protein["backbone_pred_rigid_7s"]
+    else:
+        rigid = protein["backbone_rigid_tensor_7s"]
+    rots, trans = rigid[..., :4], rigid[..., 4:]
+
+    if noise_scale >= 0:
+        rots_level = noise_scale
+        trans_level = noise_scale
+    else:
+        rots_level = _rand() * max_noise_scale
+        trans_level = _rand() * max_noise_scale
+    angle_noise = torch.rand_like(rots[..., 0]) * 179 / 180 * np.pi * rots_level
+    rots_noise = _rand_axis_like(rots) * torch.tan(angle_noise / 2).unsqueeze(-1)
+    trans_noise = torch.randn_like(trans) * trans_level * trans.std()
+    noisy_rots = Rotation(quats=rots, normalize_quats=False).compose_q_update_vec(rots_noise).get_quats()
+    noisy_trans = trans + trans_noise
+    noisy_rigid = torch.cat([noisy_rots, noisy_trans], dim=-1)
+    protein["backbone_noisy_rigid_7s"] = noisy_rigid
+    protein["noise_level"] = torch.tensor([rots_level, trans_level])
     return protein
 
 

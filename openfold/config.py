@@ -171,6 +171,7 @@ config = mlc.ConfigDict(
                     "loop_mask": [NUM_RES],
                     "all_atom_mask": [NUM_RES, None],
                     "all_atom_positions": [NUM_RES, None, None],
+                    "pred_atom_positions": [NUM_RES, None, None],
                     "alt_chi_angles": [NUM_RES, None],
                     "atom14_alt_gt_exists": [NUM_RES, None],
                     "atom14_alt_gt_positions": [NUM_RES, None, None],
@@ -271,6 +272,7 @@ config = mlc.ConfigDict(
                 "supervised_features": [
                     "all_atom_mask",
                     "all_atom_positions",
+                    "pred_atom_positions",
                     "resolution",
                     "use_clamped_fape",
                     "is_distillation",
@@ -287,6 +289,7 @@ config = mlc.ConfigDict(
                 "crop_size": None,
                 "supervised": False,
                 "uniform_recycling": False,
+                "use_pred_prob": 0.0,
             },
             "eval": {
                 "fixed_size": True,
@@ -299,6 +302,7 @@ config = mlc.ConfigDict(
                 "crop_size": None, # necessary for batch_size >= 2
                 "supervised": True,
                 "uniform_recycling": False,
+                "use_pred_prob": 0.0,
             },
             "train": {
                 "fixed_size": True,
@@ -314,6 +318,7 @@ config = mlc.ConfigDict(
                 "clamp_prob": 0.9,
                 "max_distillation_msa_clusters": 1000,
                 "uniform_recycling": True,
+                "use_pred_prob": 0.0,
             },
             "data_module": {
                 "use_small_bfd": False,

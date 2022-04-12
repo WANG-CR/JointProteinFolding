@@ -5,6 +5,7 @@ import json
 import logging
 logging.basicConfig(level=logging.WARNING)
 import os
+import glob
 import pickle
 from typing import Optional, Sequence, List, Any
 
@@ -28,6 +29,7 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
         data_dir: str,
         alignment_dir: str,
         embedding_dir: str,
+        pred_pdb_dir: str,
         template_mmcif_dir: str,
         max_template_date: str,
         config: mlc.ConfigDict,
@@ -88,6 +90,7 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
         self.data_dir = data_dir
         self.alignment_dir = alignment_dir
         self.embedding_dir = embedding_dir
+        self.pred_pdb_dir = pred_pdb_dir
         self.config = config
         self.treat_pdb_as_distillation = treat_pdb_as_distillation
         self.mode = mode
@@ -236,6 +239,21 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
                 )
             else:
                 raise ValueError("Invalid file type")
+
+            if self.pred_pdb_dir is not None:
+                pred_pdb_path = glob.glob(os.path.join(self.pred_pdb_dir, f"{file_id}_*.pdb"))
+                assert len(pred_pdb_path) == 1, "multiple predictions found!"
+                pred_pdb_path = pred_pdb_path[0]
+
+                pred_data = self.data_pipeline.process_pdb(
+                    pdb_path=pred_pdb_path,
+                    alignment_dir=alignment_dir,
+                    is_distillation=self.treat_pdb_as_distillation,
+                    chain_id=chain_id,
+                    embedding_dir=embedding_dir,
+                    _alignment_index=_alignment_index,
+                )
+                data["pred_atom_positions"] = pred_data["all_atom_positions"]
         else:
             path = os.path.join(name, name + ".fasta")
             data = self.data_pipeline.process_fasta(
@@ -540,6 +558,7 @@ class OpenFoldDataModule(pl.LightningDataModule):
         train_alignment_dir: Optional[str] = None,
         train_embedding_dir: Optional[str] = None,
         train_chain_data_cache_path: Optional[str] = None,
+        pred_train_pdb_dir: Optional[str] = None,
         distillation_data_dir: Optional[str] = None,
         distillation_alignment_dir: Optional[str] = None,
         distillation_embedding_dir: Optional[str] = None,
@@ -547,6 +566,7 @@ class OpenFoldDataModule(pl.LightningDataModule):
         val_data_dir: Optional[str] = None,
         val_alignment_dir: Optional[str] = None,
         val_embedding_dir: Optional[str] = None,
+        pred_val_pdb_dir: Optional[str] = None,
         predict_data_dir: Optional[str] = None,
         predict_alignment_dir: Optional[str] = None,
         predict_embedding_dir: Optional[str] = None,
@@ -570,6 +590,7 @@ class OpenFoldDataModule(pl.LightningDataModule):
         self.train_alignment_dir = train_alignment_dir
         self.train_embedding_dir = train_embedding_dir
         self.train_chain_data_cache_path = train_chain_data_cache_path
+        self.pred_train_pdb_dir = pred_train_pdb_dir
         self.distillation_data_dir = distillation_data_dir
         self.distillation_alignment_dir = distillation_alignment_dir
         self.distillation_embedding_dir = distillation_embedding_dir
@@ -579,6 +600,7 @@ class OpenFoldDataModule(pl.LightningDataModule):
         self.val_data_dir = val_data_dir
         self.val_alignment_dir = val_alignment_dir
         self.val_embedding_dir = val_embedding_dir
+        self.pred_val_pdb_dir = pred_val_pdb_dir
         self.predict_data_dir = predict_data_dir
         self.predict_alignment_dir = predict_alignment_dir
         self.predict_embedding_dir = predict_embedding_dir
@@ -639,6 +661,7 @@ class OpenFoldDataModule(pl.LightningDataModule):
                 data_dir=self.train_data_dir,
                 alignment_dir=self.train_alignment_dir,
                 embedding_dir=self.train_embedding_dir,
+                pred_pdb_dir=self.pred_train_pdb_dir,
                 mapping_path=self.train_mapping_path,
                 max_template_hits=self.config.train.max_template_hits,
                 shuffle_top_k_prefiltered=
@@ -694,6 +717,7 @@ class OpenFoldDataModule(pl.LightningDataModule):
                     data_dir=self.val_data_dir,
                     alignment_dir=self.val_alignment_dir,
                     embedding_dir=self.val_embedding_dir,
+                    pred_pdb_dir=self.pred_val_pdb_dir,
                     mapping_path=None,
                     max_template_hits=self.config.eval.max_template_hits,
                     mode="eval",

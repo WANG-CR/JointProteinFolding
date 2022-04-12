@@ -284,8 +284,10 @@ def main(args):
 
         plddt = out["plddt"]
         mean_plddt = np.mean(plddt)
+        mean_lddt = 0.
         
         if args.pdb_path:
+            mean_lddt = np.mean(step_lddts[-1][-1])
             # plot plddt curve w.r.t. residue & step
             step_plddts = [
                 out["plddt_by_sm_step"],  # by step (last recyle)
@@ -390,7 +392,9 @@ def main(args):
         # Save the unrelaxed PDB.
         unrelaxed_output_path = os.path.join(
             args.output_dir,
-            f"{tag}_{ckpt_epoch}_{args.config_preset}_rec{args.no_recycling_iters}_plddt{mean_plddt:.3f}_unrelaxed.pdb"
+            f"{tag}_{ckpt_epoch}_{args.config_preset}_" \
+            f"rec{args.no_recycling_iters}_plddt{mean_plddt:.3f}_" \
+            f"lddt{mean_lddt:.3f}_unrelaxed.pdb"
         )
         with open(unrelaxed_output_path, 'w') as f:
             f.write(protein.to_pdb(unrelaxed_protein))
@@ -419,7 +423,9 @@ def main(args):
                 # Save the relaxed PDB.
                 relaxed_output_path = os.path.join(
                     args.output_dir,
-                    f"{tag}_{ckpt_epoch}_{args.config_preset}_rec{args.no_recycling_iters}_plddt{mean_plddt:.3f}_relaxed.pdb"
+                    f"{tag}_{ckpt_epoch}_{args.config_preset}_" \
+                    f"rec{args.no_recycling_iters}_plddt{mean_plddt:.3f}_" \
+                    f"lddt{mean_lddt:.3f}_relaxed.pdb"                    
                 )
                 with open(relaxed_output_path, 'w') as f:
                     f.write(relaxed_pdb_str)
