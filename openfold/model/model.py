@@ -40,6 +40,7 @@ from openfold.model.template import (
     TemplatePairStack,
     TemplatePointwiseAttention,
 )
+from openfold.utils.rigid_utils import Rotation, Rigid
 from openfold.utils.loss import (
     compute_plddt,
 )
@@ -180,7 +181,10 @@ class AlphaFold(nn.Module):
 
         return ret
 
-    def iteration(self, feats, m_1_prev, z_prev, x_prev, _recycle=True):
+    def iteration(
+        self, feats, m_1_prev, z_prev, x_prev,
+        initial_rigids=None, _recycle=True,
+    ):
         # Primary output dictionary
         outputs = {}
 
@@ -213,7 +217,7 @@ class AlphaFold(nn.Module):
         )
 
         # Initialize the recycling embeddings, if needs be
-        if None in [m_1_prev, z_prev, x_prev]:
+        if None in [m_1_prev, z_prev]:
             # [*, N, C_m]
             m_1_prev = m.new_zeros(
                 (*batch_dims, n, self.config.input_embedder.c_m),
@@ -226,15 +230,23 @@ class AlphaFold(nn.Module):
                 requires_grad=False,
             )
 
+        if x_prev is None:
             # [*, N, 3]
-            x_prev = z.new_zeros(
-                (*batch_dims, n, residue_constants.atom_type_num, 3),
-                requires_grad=False,
+            if self.config.is_refine: # a base predicted structure is probably provided.
+                x_prev = z.new_zeros(
+                    (*batch_dims, n, 3),
+                    requires_grad=False,
+                )
+            else:
+                x_prev = z.new_zeros(
+                    (*batch_dims, n, residue_constants.atom_type_num, 3),
+                    requires_grad=False,
+                )
+        if not self.config.is_refine:
+            x_prev = pseudo_beta_fn(
+                feats["aatype"], x_prev, None
             )
-
-        x_prev = pseudo_beta_fn(
-            feats["aatype"], x_prev, None
-        ).to(dtype=z.dtype)
+        x_prev = x_prev.to(z.dtype)
 
         # m_1_prev_emb: [*, N, C_m]
         # z_prev_emb: [*, N, N, C_z]
@@ -343,6 +355,7 @@ class AlphaFold(nn.Module):
             z,
             feats["aatype"],
             mask=feats["seq_mask"].to(dtype=s.dtype),
+            initial_rigids=initial_rigids,
         )
         outputs["final_atom_positions"] = atom14_to_atom37(
             outputs["sm"]["positions"][-1], feats
@@ -443,11 +456,20 @@ class AlphaFold(nn.Module):
         # Main recycling loop
         num_iters = batch["aatype"].shape[-1]
         recycle_outputs = []
-        
+
         for cycle_no in range(num_iters):
             # Select the features for the current recycling cycle
             fetch_cur_batch = lambda t: t[..., cycle_no]
             feats = tensor_tree_map(fetch_cur_batch, batch)
+
+            if self.config.is_refine:
+                initial_rigids = Rigid.from_tensor_7(feats["backbone_pred_rigid_7s"])
+                x_prev = initial_rigids.get_trans()
+                initial_rigids = initial_rigids.scale_translation(
+                    1.0 / self.structure_module.trans_scale_factor
+                )
+            else:
+                initial_rigids = None
 
             # Enable grad iff we're training and it's the final recycling layer
             is_final_iter = cycle_no == (num_iters - 1)
@@ -464,6 +486,7 @@ class AlphaFold(nn.Module):
                     m_1_prev,
                     z_prev,
                     x_prev,
+                    initial_rigids=initial_rigids,
                     _recycle=(num_iters > 1)
                 )
                 outputs.update(self.aux_heads(outputs))

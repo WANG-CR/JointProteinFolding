@@ -18,8 +18,6 @@ import torch
 import torch.nn as nn
 from typing import Optional, Tuple
 
-from zmq import device
-
 from openfold.model.primitives import Linear, LayerNorm, ipa_point_weights_init_
 from openfold.np.residue_constants import (
     restype_rigid_group_default_frame,
@@ -586,6 +584,7 @@ class StructureModule(nn.Module):
         z,
         aatype,
         mask=None,
+        initial_rigids=None,
     ):
         """
         Args:
@@ -615,13 +614,17 @@ class StructureModule(nn.Module):
         s = self.linear_in(s)
 
         # [*, N]
-        rigids = Rigid.identity(
-            s.shape[:-1], 
-            s.dtype, 
-            s.device, 
-            self.training,
-            fmt="quat",
-        )
+        if initial_rigids is not None:
+            rigids = initial_rigids
+        else:
+            rigids = Rigid.identity(
+                s.shape[:-1],
+                s.dtype,
+                s.device,
+                self.training,
+                fmt="quat",
+            )
+
         outputs = []
         for i in range(self.no_blocks):
             # [*, N, C_s]

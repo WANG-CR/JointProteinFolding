@@ -38,12 +38,12 @@ from openfold.utils.validation_metrics import (
     gdt_ts,
     gdt_ha,
 )
-from scripts.zero_to_fp32 import (
-    get_fp32_state_dict_from_zero_checkpoint
-)
-# from scripts.zero_to_fp32_issue1422 import (
+# from scripts.zero_to_fp32 import (
 #     get_fp32_state_dict_from_zero_checkpoint
 # )
+from scripts.zero_to_fp32_issue1422 import (
+    get_fp32_state_dict_from_zero_checkpoint
+)
 
 from openfold.utils.logger import PerformanceLoggingCallback
 
@@ -527,6 +527,14 @@ if __name__ == "__main__":
     parser.add_argument(
         "--val_embedding_dir", type=str, default=None,
         help="Directory containing pre-trained validation residue embeddings"
+    )
+    parser.add_argument(
+        "--pred_train_pdb_dir", type=str, default=None,
+        help="Directory containing predicted pdb structures for training set"
+    )
+    parser.add_argument(
+        "--pred_val_pdb_dir", type=str, default=None,
+        help="Directory containing predicted pdb structures for validation set"
     )
     parser.add_argument(
         "--train_chain_data_cache_path", type=str, default=None,

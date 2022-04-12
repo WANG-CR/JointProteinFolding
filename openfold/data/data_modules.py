@@ -242,7 +242,7 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
 
             if self.pred_pdb_dir is not None:
                 pred_pdb_path = glob.glob(os.path.join(self.pred_pdb_dir, f"{file_id}_*.pdb"))
-                assert len(pred_pdb_path) == 1, "multiple predictions found!"
+                assert len(pred_pdb_path) == 1, f"{len(pred_pdb_path)} predictions are found!"
                 pred_pdb_path = pred_pdb_path[0]
 
                 pred_data = self.data_pipeline.process_pdb(

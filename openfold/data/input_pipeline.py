@@ -63,6 +63,13 @@ def nonensembled_transform_fns(common_cfg, mode_cfg):
                 data_transforms.get_chi_angles,
             ]
         )
+    if mode_cfg.is_refine and not mode_cfg.supervised:
+        transforms.extend(
+            [
+                data_transforms.atom37_to_frames,
+                data_transforms.get_backbone_frames,
+            ]
+        )
 
     return transforms
 
