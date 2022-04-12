@@ -154,6 +154,7 @@ eps = mlc.FieldReference(1e-8, field_type=float)
 templates_enabled = mlc.FieldReference(True, field_type=bool)
 residue_emb_enabled = mlc.FieldReference(False, field_type=bool)
 embed_template_torsion_angles = mlc.FieldReference(True, field_type=bool)
+is_refine = mlc.FieldReference(False, field_type=bool)
 
 NUM_RES = "num residues placeholder"
 NUM_MSA_SEQ = "msa placeholder"
@@ -289,7 +290,7 @@ config = mlc.ConfigDict(
                 "crop": False,
                 "crop_size": None,
                 "supervised": False,
-                "is_refine": False,
+                "is_refine": is_refine,
                 "uniform_recycling": False,
                 "use_pred_prob": 0.0,
             },
@@ -303,7 +304,7 @@ config = mlc.ConfigDict(
                 "crop": False,
                 "crop_size": None, # necessary for batch_size >= 2
                 "supervised": True,
-                "is_refine": False,
+                "is_refine": is_refine,
                 "uniform_recycling": False,
                 "use_pred_prob": 0.0,
             },
@@ -318,7 +319,7 @@ config = mlc.ConfigDict(
                 "crop": True,
                 "crop_size": 256,
                 "supervised": True,
-                "is_refine": False,
+                "is_refine": is_refine,
                 "clamp_prob": 0.9,
                 "max_distillation_msa_clusters": 1000,
                 "uniform_recycling": True,
@@ -356,6 +357,7 @@ config = mlc.ConfigDict(
         },
         "model": {
             "_mask_trans": False,
+            "is_refine": is_refine,
             "input_embedder": {
                 "tf_dim": 22,
                 "msa_dim": 49,

@@ -231,22 +231,16 @@ class AlphaFold(nn.Module):
             )
 
         if x_prev is None:
-            # [*, N, 3]
-            if self.config.is_refine: # a base predicted structure is probably provided.
-                x_prev = z.new_zeros(
-                    (*batch_dims, n, 3),
-                    requires_grad=False,
-                )
-            else:
-                x_prev = z.new_zeros(
-                    (*batch_dims, n, residue_constants.atom_type_num, 3),
-                    requires_grad=False,
-                )
-        if not self.config.is_refine:
-            x_prev = pseudo_beta_fn(
-                feats["aatype"], x_prev, None
+            # [*, N, 37, 3]
+            x_prev = z.new_zeros(
+                (*batch_dims, n, residue_constants.atom_type_num, 3),
+                requires_grad=False,
             )
-        x_prev = x_prev.to(z.dtype)
+
+        # [*, N, 3]
+        x_prev = pseudo_beta_fn(
+            feats["aatype"], x_prev, None
+        ).to(z.dtype)
 
         # m_1_prev_emb: [*, N, C_m]
         # z_prev_emb: [*, N, N, C_z]
@@ -370,7 +364,7 @@ class AlphaFold(nn.Module):
         # [*, N, N, C_z]
         z_prev = z
 
-        # [*, N, 3]
+        # [*, N, 37, 3]
         x_prev = outputs["final_atom_positions"]
 
         return outputs, m_1_prev, z_prev, x_prev
@@ -463,11 +457,16 @@ class AlphaFold(nn.Module):
             feats = tensor_tree_map(fetch_cur_batch, batch)
 
             if self.config.is_refine:
+                assert (
+                    "pred_atom_positions" in feats and "backbone_pred_rigid_7s" in feats
+                )
                 initial_rigids = Rigid.from_tensor_7(feats["backbone_pred_rigid_7s"])
-                x_prev = initial_rigids.get_trans()
                 initial_rigids = initial_rigids.scale_translation(
                     1.0 / self.structure_module.trans_scale_factor
                 )
+                if x_prev is None:
+                    # [*, N, 37, 3]
+                    x_prev = feats["pred_atom_positions"]
             else:
                 initial_rigids = None
 

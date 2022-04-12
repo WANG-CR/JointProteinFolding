@@ -1,11 +1,3 @@
-data:
-  predict:
-    is_refine: true
-  eval:
-    is_refine: true
-  train:
-    is_refine: true
-
 model:
   evoformer_stack:
     no_blocks: 8
@@ -18,6 +10,7 @@ model:
   residue_emb:
     enabled: true
     usage: cat
+  is_refine: true
 
 scheduler:
   warmup_no_steps: 5000
