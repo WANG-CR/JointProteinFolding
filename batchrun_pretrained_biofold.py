@@ -6,6 +6,7 @@ from matplotlib import ticker
 from matplotlib import pyplot as plt
 import numpy as np
 import os
+import glob
 import sys
 import time
 import argparse
@@ -188,6 +189,25 @@ def main(args):
             _alignment_index=None,
             is_antibody=True,
         )
+
+        if args.pred_pdb_dir:
+            pdb_pattern = os.path.join(args.pred_pdb_dir, f"{tag}_*.pdb")
+            pdb_files = glob.glob(pdb_pattern)
+            assert len(pdb_files) == 1, f"{len(pdb_files)} pdbs found for {tag}..."
+            pdb_file = pdb_files[0]
+            with open(pdb_file, "r") as fin:
+                pdb_str = fin.read()
+            protein_object = protein.from_pdb_string_antibody(pdb_str)
+            pdb_feats = data_pipeline.make_pdb_features(
+                protein_object,
+                tag.upper(),
+            )
+            # copy whatever features that are not in the evaluation batch
+            for key, value in pdb_feats.items():
+                if key not in feature_dict:
+                    feature_dict[key] = value
+            feature_dict["pred_atom_positions"] = feature_dict["all_atom_positions"]
+
         feature_dict["no_recycling_iters"] = args.no_recycling_iters
         processed_feature_dict = feature_processor.process_features(
             feature_dict, mode="predict",
@@ -472,6 +492,10 @@ if __name__ == "__main__":
         "--residue_embedding_dir", type=str, default=None,
         help="""Path to pre-trained residue embedding directory. If not provided, 
                 the model will ignore the feature."""
+    )
+    parser.add_argument(
+        "--pred_pdb_dir", type=str, default=None,
+        help="Directory containing predicted pdb structures"
     )
     parser.add_argument(
         "--relax", type=bool_type, default=True,

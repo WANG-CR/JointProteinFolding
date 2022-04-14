@@ -3,7 +3,7 @@ module load cuda/11.4
 source activate $ENV_NAME
 WORK_DIR=$SCRATCH/biofold
 
-YAML_CONFIG_PRESET=msa
+YAML_CONFIG_PRESET=cat_refine
 VERSION=narval_v1
 python scripts_evaluate/renumber_dir.py \
     $WORK_DIR/output/rosetta_benchmark/${YAML_CONFIG_PRESET}-${VERSION} \
@@ -23,6 +23,7 @@ YAML_CONFIG_PRESET1=decay
 YAML_CONFIG_PRESET2=cat
 YAML_CONFIG_PRESET3=replace
 YAML_CONFIG_PRESET4=msa
+YAML_CONFIG_PRESET5=cat_refine
 VERSION=narval_v1
 python scripts_evaluate/get_metric_dir.py \
     $WORK_DIR/output/rosetta_benchmark/${YAML_CONFIG_PRESET1}-${VERSION}-renum \
@@ -32,9 +33,9 @@ python scripts_evaluate/get_metric_dir.py \
     --pred_dir4 $WORK_DIR/output/rosetta_benchmark/${YAML_CONFIG_PRESET4}-${VERSION}-renum \
 
 python scripts_evaluate/ensemble_dir.py \
-    --pred_dir $WORK_DIR/output/rosetta_benchmark/${YAML_CONFIG_PRESET1}-${VERSION} \
-    --target_dir $WORK_DIR/output/rosetta_benchmark/decay_cat \
-    --pred_dir2 $WORK_DIR/output/rosetta_benchmark/${YAML_CONFIG_PRESET2}-${VERSION} \
+    --pred_dir $WORK_DIR/output/rosetta_benchmark/${YAML_CONFIG_PRESET2}-${VERSION} \
+    --target_dir $WORK_DIR/output/rosetta_benchmark/cat_cat_refine \
+    --pred_dir2 $WORK_DIR/output/rosetta_benchmark/${YAML_CONFIG_PRESET5}-${VERSION} \
 
 python scripts_evaluate/ensemble_dir.py \
     --pred_dir $WORK_DIR/output/rosetta_benchmark/${YAML_CONFIG_PRESET1}-${VERSION} \
@@ -50,8 +51,8 @@ python scripts_evaluate/ensemble_dir.py \
     --pred_dir4 $WORK_DIR/output/rosetta_benchmark/${YAML_CONFIG_PRESET4}-${VERSION} \
 
 python scripts_evaluate/renumber_dir.py \
-    $WORK_DIR/output/rosetta_benchmark/decay_cat \
-    $WORK_DIR/output/rosetta_benchmark/decay_cat-renum
+    $WORK_DIR/output/rosetta_benchmark/cat-narval_v1-relaxed \
+    $WORK_DIR/output/rosetta_benchmark/cat-narval_v1-relaxed-renum
 
 python scripts_evaluate/renumber_dir.py \
     $WORK_DIR/output/rosetta_benchmark/decay_cat \
@@ -59,5 +60,9 @@ python scripts_evaluate/renumber_dir.py \
 
 
 python scripts_evaluate/get_metric_dir.py \
-    $WORK_DIR/output/rosetta_benchmark/decay_cat-renum \
+    $WORK_DIR/output/rosetta_benchmark/cat-narval_v1-relaxed-renum \
     $WORK_DIR/database/pdb/rosetta-renum
+
+python scripts_evaluate/run_relaxation.py \
+    $WORK_DIR/output/rosetta_benchmark/cat-narval_v1 \
+    $WORK_DIR/output/rosetta_benchmark/cat-narval_v1-relaxed \

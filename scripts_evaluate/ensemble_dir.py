@@ -11,10 +11,11 @@ import logging
 logging.basicConfig(level=logging.INFO)
     
 def get_plddt(path):
-    """xxx/xxx/2r8s_epoch55_decay_rec3_plddt82.965_unrelaxed.pdb --> 82.965"""
-    basename = os.path.splitext(os.path.basename(path))[0] # 2r8s_epoch55_decay_rec3_plddt82.965_unrelaxed
-    plddt_str = basename.split('_')[-2]
-    return float(plddt_str[5:])
+    """1dlf_epoch48_cat_refine_rec3_plddt95.750_lddt93.798_unrelaxed.pdb --> 95.75"""
+    # 1dlf_epoch48_cat_refine_rec3_plddt95.750_lddt93.798_unrelaxed
+    basename = os.path.splitext(os.path.basename(path))[0]
+    index = basename.find('plddt') + len("plddt")
+    return float(basename[index: index + 6])
     
 def main(args):
     valid_pred_dir = 1
