@@ -750,3 +750,298 @@ class StructureModule(nn.Module):
             self.atom_mask,
             self.lit_positions,
         )
+
+
+class Untied_StructureModule(nn.Module):
+    def __init__(
+        self,
+        c_s,
+        c_z,
+        c_ipa,
+        c_resnet,
+        no_heads_ipa,
+        no_qk_points,
+        no_v_points,
+        dropout_rate,
+        no_blocks,
+        no_transition_layers,
+        no_resnet_blocks,
+        no_angles,
+        trans_scale_factor,
+        epsilon,
+        inf,
+        **kwargs,
+    ):
+        """
+        Args:
+            c_s:
+                Single representation channel dimension
+            c_z:
+                Pair representation channel dimension
+            c_ipa:
+                IPA hidden channel dimension
+            c_resnet:
+                Angle resnet (Alg. 23 lines 11-14) hidden channel dimension
+            no_heads_ipa:
+                Number of IPA heads
+            no_qk_points:
+                Number of query/key points to generate during IPA
+            no_v_points:
+                Number of value points to generate during IPA
+            dropout_rate:
+                Dropout rate used throughout the layer
+            no_blocks:
+                Number of structure module blocks
+            no_transition_layers:
+                Number of layers in the single representation transition
+                (Alg. 23 lines 8-9)
+            no_resnet_blocks:
+                Number of blocks in the angle resnet
+            no_angles:
+                Number of angles to generate in the angle resnet
+            trans_scale_factor:
+                Scale of single representation transition hidden dimension
+            epsilon:
+                Small number used in angle resnet normalization
+            inf:
+                Large number used for attention masking
+        """
+        super(Untied_StructureModule, self).__init__()
+
+        self.c_s = c_s
+        self.c_z = c_z
+        self.c_ipa = c_ipa
+        self.c_resnet = c_resnet
+        self.no_heads_ipa = no_heads_ipa
+        self.no_qk_points = no_qk_points
+        self.no_v_points = no_v_points
+        self.dropout_rate = dropout_rate
+        self.no_blocks = no_blocks
+        self.no_transition_layers = no_transition_layers
+        self.no_resnet_blocks = no_resnet_blocks
+        self.no_angles = no_angles
+        self.trans_scale_factor = trans_scale_factor
+        self.epsilon = epsilon
+        self.inf = inf
+
+        # To be lazily initialized later
+        self.default_frames = None
+        self.group_idx = None
+        self.atom_mask = None
+        self.lit_positions = None
+
+        self.layer_norm_s = LayerNorm(self.c_s)
+        self.layer_norm_z = LayerNorm(self.c_z)
+
+        self.linear_in = Linear(self.c_s, self.c_s)
+
+        self.ipas = nn.ModuleList()
+        self.layer_norm_ipas = nn.ModuleList()
+        self.transitions = nn.ModuleList()
+
+        for i in range(self.no_blocks):
+            self.ipas.append(
+                InvariantPointAttention(
+                self.c_s,
+                self.c_z,
+                self.c_ipa,
+                self.no_heads_ipa,
+                self.no_qk_points,
+                self.no_v_points,
+                inf=self.inf,
+                eps=self.epsilon,
+                )
+            )
+            self.layer_norm_ipas.append(LayerNorm(self.c_s))
+            self.transitions.append(
+                StructureModuleTransition(
+                    self.c_s,
+                    self.no_transition_layers,
+                    self.dropout_rate,
+                )
+            )
+
+        self.ipa_dropout = nn.Dropout(self.dropout_rate)
+
+        self.bb_update = BackboneUpdate(self.c_s)
+
+        self.angle_resnet = AngleResnet(
+            self.c_s,
+            self.c_resnet,
+            self.no_resnet_blocks,
+            self.no_angles,
+            self.epsilon,
+        )
+
+    def forward(
+        self,
+        s,
+        z,
+        aatype,
+        mask=None,
+        initial_rigids=None,
+    ):
+        """
+        Args:
+            s:
+                [*, N_res, C_s] single representation
+            z:
+                [*, N_res, N_res, C_z] pair representation
+            aatype:
+                [*, N_res] amino acid indices
+            mask:
+                Optional [*, N_res] sequence mask
+        Returns:
+            A dictionary of outputs
+        """
+        if mask is None:
+            # [*, N]
+            mask = s.new_ones(s.shape[:-1])
+
+        # [*, N, C_s]
+        s = self.layer_norm_s(s)
+
+        # [*, N, N, C_z]
+        z = self.layer_norm_z(z)
+
+        # [*, N, C_s]
+        s_initial = s
+        s = self.linear_in(s)
+
+        # [*, N]
+        if initial_rigids is not None:
+            rigids = initial_rigids
+        else:
+            rigids = Rigid.identity(
+                s.shape[:-1],
+                s.dtype,
+                s.device,
+                self.training,
+                fmt="quat",
+            )
+
+        outputs = []
+        for i in range(self.no_blocks):
+            # [*, N, C_s]
+            s = s + self.ipas[i](s, z, rigids, mask)
+            s = self.ipa_dropout(s)
+            s = self.layer_norm_ipas[i](s)
+            s = self.transitions[i](s)
+
+            # [*, N]
+            rigids = rigids.compose_q_update_vec(self.bb_update(s))
+
+            # To hew as closely as possible to AlphaFold, we convert our
+            # quaternion-based transformations to rotation-matrix ones
+            # here
+            backb_to_global = Rigid(
+                Rotation(
+                    rot_mats=rigids.get_rots().get_rot_mats(), 
+                    quats=None
+                ),
+                rigids.get_trans(),
+            )
+
+            backb_to_global = backb_to_global.scale_translation(
+                self.trans_scale_factor
+            )
+
+            # [*, N, 7, 2]
+            unnormalized_angles, angles = self.angle_resnet(s, s_initial)
+            scaled_rigids = rigids.scale_translation(self.trans_scale_factor)
+
+            if not self.training or i == (self.no_blocks - 1):
+                all_frames_to_global = self.torsion_angles_to_frames(
+                    backb_to_global,
+                    angles,
+                    aatype,
+                ) # [*, N, 8]
+                pred_xyz = self.frames_and_literature_positions_to_atom14_pos(
+                    all_frames_to_global,
+                    aatype,
+                ) # [*, N, 14, 3]
+                all_frames_to_global = all_frames_to_global.to_tensor_4x4() # [*, N, 8, 4, 4]
+            else:
+                # Use dummy "all_frames_to_global" and "pred_xyz" to
+                # save time if it is not the last step during the training.
+                batch_residue_dims = unnormalized_angles.shape[:-2] # [*, N]
+                all_frames_to_global = torch.zeros(
+                    *batch_residue_dims, 8, 4, 4,
+                    dtype=unnormalized_angles.dtype,
+                    device=unnormalized_angles.device,
+                    requires_grad=self.training,
+                ) # [*, N, 8, 4, 4]
+                pred_xyz = torch.zeros(
+                    *batch_residue_dims, 14, 3,
+                    dtype=unnormalized_angles.dtype,
+                    device=unnormalized_angles.device,
+                    requires_grad=self.training,
+                ) # [*, N, 14, 3]
+
+            preds = {
+                "frames": scaled_rigids.to_tensor_7(), # [*, N, 7]
+                "unnormalized_angles": unnormalized_angles, # [*, N, 7, 2]
+                "angles": angles, # [*, N, 7, 2]
+                "singles": s, # [*, N, C_s]
+                "sidechain_frames": all_frames_to_global, # [*, N, 8, 4, 4]
+                "positions": pred_xyz, # [*, N, 14, 3]
+            }
+
+            outputs.append(preds)
+
+            # if i < (self.no_blocks - 1):
+            #     rigids = rigids.stop_rot_gradient()
+
+        outputs = dict_multimap(torch.stack, outputs)
+        outputs["single"] = s
+
+        return outputs
+
+    def _init_residue_constants(self, float_dtype, device):
+        if self.default_frames is None:
+            self.default_frames = torch.tensor(
+                restype_rigid_group_default_frame,
+                dtype=float_dtype,
+                device=device,
+                requires_grad=False,
+            )
+        if self.group_idx is None:
+            self.group_idx = torch.tensor(
+                restype_atom14_to_rigid_group,
+                device=device,
+                requires_grad=False,
+            )
+        if self.atom_mask is None:
+            self.atom_mask = torch.tensor(
+                restype_atom14_mask,
+                dtype=float_dtype,
+                device=device,
+                requires_grad=False,
+            )
+        if self.lit_positions is None:
+            self.lit_positions = torch.tensor(
+                restype_atom14_rigid_group_positions,
+                dtype=float_dtype,
+                device=device,
+                requires_grad=False,
+            )
+
+    def torsion_angles_to_frames(self, r, alpha, f):
+        # Lazily initialize the residue constants on the correct device
+        self._init_residue_constants(alpha.dtype, alpha.device)
+        # Separated purely to make testing less annoying
+        return torsion_angles_to_frames(r, alpha, f, self.default_frames)
+
+    def frames_and_literature_positions_to_atom14_pos(
+        self, r, f  # [*, N, 8]  # [*, N]
+    ):
+        # Lazily initialize the residue constants on the correct device
+        self._init_residue_constants(r.get_rots().dtype, r.get_rots().device)
+        return frames_and_literature_positions_to_atom14_pos(
+            r,
+            f,
+            self.default_frames,
+            self.group_idx,
+            self.atom_mask,
+            self.lit_positions,
+        )

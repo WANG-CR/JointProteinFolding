@@ -358,6 +358,7 @@ config = mlc.ConfigDict(
         "model": {
             "_mask_trans": False,
             "is_refine": is_refine,
+            "untied_structure_module": False,
             "input_embedder": {
                 "tf_dim": 22,
                 "msa_dim": 49,

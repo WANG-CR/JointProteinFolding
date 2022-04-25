@@ -303,7 +303,9 @@ def main(args):
         out = tensor_tree_map(lambda x: np.array(x.cpu()), out)
 
         plddt = out["plddt"]
-        mean_plddt = np.mean(plddt)
+        # mean_plddt = np.mean(plddt)
+        # Following IgFold, we use 90-th percentile error
+        mean_plddt = np.percentile(plddt, 100 - 90)
         mean_lddt = 0.
         
         if args.pdb_path:

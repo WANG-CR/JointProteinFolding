@@ -22,7 +22,7 @@ python scripts_evaluate/renumber_dir.py \
 YAML_CONFIG_PRESET1=decay
 YAML_CONFIG_PRESET2=cat
 YAML_CONFIG_PRESET3=replace
-YAML_CONFIG_PRESET4=msa
+YAML_CONFIG_PRESET4=cat_refine
 YAML_CONFIG_PRESET5=cat_refine
 VERSION=narval_v1
 python scripts_evaluate/get_metric_dir.py \
@@ -55,12 +55,12 @@ python scripts_evaluate/renumber_dir.py \
     $WORK_DIR/output/rosetta_benchmark/cat-narval_v1-relaxed-renum
 
 python scripts_evaluate/renumber_dir.py \
-    $WORK_DIR/output/rosetta_benchmark/decay_cat \
-    $WORK_DIR/output/rosetta_benchmark/decay_cat-renum
+    $WORK_DIR/output/rosetta_benchmark/decay_cat_replace \
+    $WORK_DIR/output/rosetta_benchmark/decay_cat_replace-renum
 
 
 python scripts_evaluate/get_metric_dir.py \
-    $WORK_DIR/output/rosetta_benchmark/cat-narval_v1-relaxed-renum \
+    $WORK_DIR/output/rosetta_benchmark/decay_cat_replace-renum \
     $WORK_DIR/database/pdb/rosetta-renum
 
 python scripts_evaluate/run_relaxation.py \

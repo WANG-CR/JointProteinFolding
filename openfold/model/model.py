@@ -35,7 +35,10 @@ from openfold.model.embedders import (
 from openfold.model.evoformer import EvoformerStack, ExtraMSAStack
 from openfold.model.heads import AuxiliaryHeads
 import openfold.np.residue_constants as residue_constants
-from openfold.model.structure_module import StructureModule
+from openfold.model.structure_module import (
+    StructureModule,
+    Untied_StructureModule,
+)
 from openfold.model.template import (
     TemplatePairStack,
     TemplatePointwiseAttention,
@@ -106,15 +109,19 @@ class AlphaFold(nn.Module):
         self.evoformer = EvoformerStack(
             **config["evoformer_stack"],
         )
-        self.structure_module = StructureModule(
-            **config["structure_module"],
-        )
+        if not self.config.untied_structure_module:
+            self.structure_module = StructureModule(
+                **config["structure_module"],
+            )
+        else:
+            self.structure_module = Untied_StructureModule(
+                **config["structure_module"],
+            )
 
         self.aux_heads = AuxiliaryHeads(
             config["heads"],
         )
 
-        self.config = config
 
     def embed_templates(self, batch, z, pair_mask, templ_dim): 
         # Embed the templates one at a time (with a poor man's vmap)

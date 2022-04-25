@@ -74,3 +74,25 @@ python scripts_database/merge_esm.py \
     $SCRATCH/biofold/pretrained_embeddings/esm1b/therapeutics \
     $SCRATCH/biofold/pretrained_embeddings/esm1b/therapeutics_merged \
     --model_name esm1b
+
+# 4. generate pretraining LM embeddings from oas
+OAS_MODEL_PATH=$SCRATCH/biofold/pretrained_weights/oas_params/oasunpaired_bertbase_epoch_25.pth
+python scripts_database/extract_oas.py \
+    $DATABASE_DIR/fasta/merged/${DATABASE_VERSION}_train.fasta \
+    $SCRATCH/biofold/pretrained_embeddings/oasunpaired/${DATABASE_VERSION}_train \
+    $OAS_MODEL_PATH \
+
+python scripts_database/extract_oas.py \
+    $DATABASE_DIR/fasta/merged/${DATABASE_VERSION}_valid.fasta \
+    $SCRATCH/biofold/pretrained_embeddings/oasunpaired/${DATABASE_VERSION}_valid \
+    $OAS_MODEL_PATH \
+
+python scripts_database/extract_oas.py \
+    $DATABASE_DIR/fasta/merged/rosetta.fasta \
+    $SCRATCH/biofold/pretrained_embeddings/oasunpaired/rosetta \
+    $OAS_MODEL_PATH \
+
+python scripts_database/extract_oas.py \
+    $DATABASE_DIR/fasta/merged/therapeutics.fasta \
+    $SCRATCH/biofold/pretrained_embeddings/oasunpaired/therapeutics \
+    $OAS_MODEL_PATH \
