@@ -282,7 +282,7 @@ config = mlc.ConfigDict(
             },
             "predict": {
                 "fixed_size": True,
-                "subsample_templates": False,  # We want top templates.
+                "subsample_templates": False, # We want top templates.
                 "masked_msa_replace_fraction": 0.15,
                 "max_msa_clusters": 128,
                 "max_template_hits": 4,
@@ -292,11 +292,11 @@ config = mlc.ConfigDict(
                 "supervised": False,
                 "is_refine": is_refine,
                 "uniform_recycling": False,
-                "use_pred_prob": 0.0,
+                "distillation_prob": 0.75, # necessary if distillation dir is provided
             },
             "eval": {
                 "fixed_size": True,
-                "subsample_templates": False,  # We want top templates.
+                "subsample_templates": False, # We want top templates.
                 "masked_msa_replace_fraction": 0.15,
                 "max_msa_clusters": 128,
                 "max_template_hits": 4,
@@ -306,7 +306,6 @@ config = mlc.ConfigDict(
                 "supervised": True,
                 "is_refine": is_refine,
                 "uniform_recycling": False,
-                "use_pred_prob": 0.0,
             },
             "train": {
                 "fixed_size": True,
@@ -323,7 +322,6 @@ config = mlc.ConfigDict(
                 "clamp_prob": 0.9,
                 "max_distillation_msa_clusters": 1000,
                 "uniform_recycling": True,
-                "use_pred_prob": 0.0,
             },
             "data_module": {
                 "use_small_bfd": False,
@@ -421,6 +419,7 @@ config = mlc.ConfigDict(
                 "eps": eps,  # 1e-6,
                 "enabled": templates_enabled,
                 "embed_angles": embed_template_torsion_angles,
+                "use_unit_vector": False,
             },
             "extra_msa": {
                 "extra_msa_embedder": {

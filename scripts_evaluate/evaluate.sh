@@ -4,7 +4,7 @@ source activate $ENV_NAME
 WORK_DIR=$SCRATCH/biofold
 
 YAML_CONFIG_PRESET=cat_refine
-VERSION=narval_v1
+VERSION=v2_finetune
 python scripts_evaluate/renumber_dir.py \
     $WORK_DIR/output/rosetta_benchmark/${YAML_CONFIG_PRESET}-${VERSION} \
     $WORK_DIR/output/rosetta_benchmark/${YAML_CONFIG_PRESET}-${VERSION}-renum
