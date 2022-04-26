@@ -27,7 +27,7 @@ YAML_CONFIG_PRESET=cat_refine
 srun python train_biofold.py $TRAIN_DIR/ $TRAIN_DIR/ $TRAIN_DIR/ \
     $OUTPUT_DIR/ \
     2021-12-31 \
-    --seed 2022 \
+    --seed 2023 \
     --yaml_config_preset yaml_config/${YAML_CONFIG_PRESET}.yml \
     --val_data_dir $VALID_DIR/ \
     --val_alignment_dir $VALID_DIR/ \
