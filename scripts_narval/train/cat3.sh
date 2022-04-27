@@ -34,7 +34,7 @@ srun python train_biofold.py $TRAIN_DIR/ $TRAIN_DIR/ $TRAIN_DIR/ \
     --precision 16 --gpus 4 --log_every_n_steps 50 \
     --wandb true \
     --wandb_entity chenceshi \
-    --wandb_version narval_v3 \
+    --wandb_version v3 \
     --wandb_project wandb_biofold \
     --deepspeed_config_path deepspeed_config_scc.json \
     --sabdab_summary_file $WORK_DIR/database/info/20220319_99_True_All__4_sabdab_summary.tsv \

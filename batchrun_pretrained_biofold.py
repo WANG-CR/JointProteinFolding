@@ -303,9 +303,12 @@ def main(args):
         out = tensor_tree_map(lambda x: np.array(x.cpu()), out)
 
         plddt = out["plddt"]
+        # 1. naive mean
         # mean_plddt = np.mean(plddt)
-        # Following IgFold, we use 90-th percentile error
+        # 2. Following IgFold, we use 90-th percentile error
         mean_plddt = np.percentile(plddt, 100 - 90)
+        # 3. Average plddt on CDR h3 region.
+        # mean_plddt = np.mean(plddt[loop_index == 3])
         mean_lddt = 0.
         
         if args.pdb_path:
