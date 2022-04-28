@@ -26,7 +26,7 @@ def merge_oas_unpaired_embedding(pdbid, args):
           
 def main(args):
     job_pools = set()
-    job_candidate = [x for x in os.listdir(args.data_dir) if x.endswith('.pt')]
+    job_candidate = [x for x in os.listdir(args.data_dir) if x.endswith('pt')]
     for job in job_candidate:
         job_pools.add(os.path.splitext(job)[0][:4])
     job_pools = list(job_pools)
@@ -34,7 +34,8 @@ def main(args):
     
     fn_dict = {
         "esm1b": merge_esm_embedding,
-        "oas_unpaired": merge_oas_unpaired_embedding
+        "oas_unpaired": merge_oas_unpaired_embedding,
+        "oas_antiberty": merge_oas_unpaired_embedding,
     }
     for job in job_pools:
         embed_HL = fn_dict[args.model_name](job, args)

@@ -75,24 +75,32 @@ python scripts_database/merge_esm.py \
     $SCRATCH/biofold/pretrained_embeddings/esm1b/therapeutics_merged \
     --model_name esm1b
 
-# 4. generate pretraining LM embeddings from oas
-OAS_MODEL_PATH=$SCRATCH/biofold/pretrained_weights/oas_params/oasunpaired_bertbase_epoch_25.pth
-python scripts_database/extract_oas.py \
+# 4. generate pretraining LM embeddings from antiberty
+OAS_MODEL_PATH=$SCRATCH/biofold/pretrained_weights/oas_params/IgFold/igfold_1.ckpt
+python scripts_database/extract_antiberty.py \
     $DATABASE_DIR/fasta/merged/${DATABASE_VERSION}_train.fasta \
-    $SCRATCH/biofold/pretrained_embeddings/oasunpaired/${DATABASE_VERSION}_train \
+    $SCRATCH/biofold/pretrained_embeddings/oas_antiberty/${DATABASE_VERSION}_train_feat \
+    $SCRATCH/biofold/pretrained_embeddings/oas_antiberty/${DATABASE_VERSION}_train_attn \
     $OAS_MODEL_PATH \
 
-python scripts_database/extract_oas.py \
+python scripts_database/extract_antiberty.py \
     $DATABASE_DIR/fasta/merged/${DATABASE_VERSION}_valid.fasta \
-    $SCRATCH/biofold/pretrained_embeddings/oasunpaired/${DATABASE_VERSION}_valid \
+    $SCRATCH/biofold/pretrained_embeddings/oas_antiberty/${DATABASE_VERSION}_valid_feat \
+    $SCRATCH/biofold/pretrained_embeddings/oas_antiberty/${DATABASE_VERSION}_valid_attn \
     $OAS_MODEL_PATH \
 
-python scripts_database/extract_oas.py \
+python scripts_database/extract_antiberty.py \
     $DATABASE_DIR/fasta/merged/rosetta.fasta \
-    $SCRATCH/biofold/pretrained_embeddings/oasunpaired/rosetta \
+    $SCRATCH/biofold/pretrained_embeddings/oas_antiberty/rosetta_feat \
+    $SCRATCH/biofold/pretrained_embeddings/oas_antiberty/rosetta_attn \
     $OAS_MODEL_PATH \
+python scripts_database/merge_esm.py \
+    $SCRATCH/biofold/pretrained_embeddings/oas_antiberty/rosetta_feat \
+    $SCRATCH/biofold/pretrained_embeddings/oas_antiberty/rosetta_feat_merged \
+    --model_name oas_antiberty
 
-python scripts_database/extract_oas.py \
+python scripts_database/extract_antiberty.py \
     $DATABASE_DIR/fasta/merged/therapeutics.fasta \
-    $SCRATCH/biofold/pretrained_embeddings/oasunpaired/therapeutics \
+    $SCRATCH/biofold/pretrained_embeddings/oas_antiberty/therapeutics_feat \
+    $SCRATCH/biofold/pretrained_embeddings/oas_antiberty/therapeutics_attn \
     $OAS_MODEL_PATH \
