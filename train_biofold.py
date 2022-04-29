@@ -529,6 +529,18 @@ if __name__ == "__main__":
         help="Directory containing pre-trained validation residue embeddings"
     )
     parser.add_argument(
+        "--train_attn_dir", type=str, default=None,
+        help="Directory containing pre-trained training residue attns"
+    )
+    parser.add_argument(
+        "--distillation_attn_dir", type=str, default=None,
+        help="Directory containing pre-trained distillation residue attns"
+    )
+    parser.add_argument(
+        "--val_attn_dir", type=str, default=None,
+        help="Directory containing pre-trained validation residue attns"
+    )
+    parser.add_argument(
         "--pred_train_pdb_dir", type=str, default=None,
         help="Directory containing predicted pdb structures for training set"
     )

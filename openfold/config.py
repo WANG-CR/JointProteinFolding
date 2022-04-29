@@ -153,6 +153,7 @@ tm_enabled = mlc.FieldReference(False, field_type=bool)
 eps = mlc.FieldReference(1e-8, field_type=float)
 templates_enabled = mlc.FieldReference(True, field_type=bool)
 residue_emb_enabled = mlc.FieldReference(False, field_type=bool)
+residue_attn_enabled = mlc.FieldReference(False, field_type=bool)
 embed_template_torsion_angles = mlc.FieldReference(True, field_type=bool)
 is_refine = mlc.FieldReference(False, field_type=bool)
 
@@ -201,7 +202,9 @@ config = mlc.ConfigDict(
                     "pseudo_beta": [NUM_RES, None],
                     "pseudo_beta_mask": [NUM_RES],
                     "residue_index": [NUM_RES],
+                    "chain_index": [NUM_RES],
                     "residue_emb": [None, NUM_RES, None],
+                    "residue_attn": [NUM_RES, NUM_RES, None],
                     "residx_atom14_to_atom37": [NUM_RES, None],
                     "residx_atom37_to_atom14": [NUM_RES, None],
                     "resolution": [],
@@ -264,6 +267,7 @@ config = mlc.ConfigDict(
                     "deletion_matrix",
                     "no_recycling_iters",
                     "residue_emb",
+                    "residue_attn",
                     "loop_index",
                 ],
                 "use_templates": templates_enabled,
@@ -377,6 +381,10 @@ config = mlc.ConfigDict(
                 "num_emb_feats": 1,
                 "usage": "cat",
                 "enabled": residue_emb_enabled,
+            },
+            "residue_attn": {
+                "c_emb": 64,
+                "enabled": residue_attn_enabled,
             },
             "template": {
                 "distogram": {

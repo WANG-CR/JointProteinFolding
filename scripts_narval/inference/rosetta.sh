@@ -7,6 +7,7 @@ source activate $ENV_NAME
 echo env done
 WORK_DIR=$SCRATCH/biofold
 EMBED_DIR=$WORK_DIR/pretrained_embeddings/esm1b/rosetta_merged
+EMBED_DIR2=$WORK_DIR/pretrained_embeddings/oas_antiberty/rosetta_feat_merged
 
 # 2. batch inference
 YAML_CONFIG_PRESET=replace
@@ -72,6 +73,21 @@ python batchrun_pretrained_biofold.py \
 
 
 ############# cat #############
+YAML_CONFIG_PRESET=cat
+VERSION=oas_v1
+CKPT_NAME=epoch39-step19039-val_loss=0.938.ckpt
+python batchrun_pretrained_biofold.py \
+    $WORK_DIR/database/fasta/merged/rosetta.fasta \
+    0 \
+    $WORK_DIR/output/wandb_biofold/${YAML_CONFIG_PRESET}-${VERSION}/checkpoints/${CKPT_NAME} \
+    --pdb_path $WORK_DIR/database/pdb/rosetta \
+    --yaml_config_preset yaml_config/${YAML_CONFIG_PRESET}.yml \
+    --output_dir $WORK_DIR/output/rosetta_benchmark/${YAML_CONFIG_PRESET}-${VERSION} \
+    --residue_embedding_dir $EMBED_DIR2/ \
+    --model_device cuda:0 \
+    --no_recycling_iters 3 \
+    --relax false \
+
 YAML_CONFIG_PRESET=cat
 VERSION=narval_v1
 CKPT_NAME=epoch49-step23799-val_loss=0.916.ckpt

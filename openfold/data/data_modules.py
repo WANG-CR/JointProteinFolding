@@ -29,6 +29,7 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
         data_dir: str,
         alignment_dir: str,
         embedding_dir: str,
+        attn_dir: str,
         pred_pdb_dir: str,
         template_mmcif_dir: str,
         max_template_date: str,
@@ -90,6 +91,7 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
         self.data_dir = data_dir
         self.alignment_dir = alignment_dir
         self.embedding_dir = embedding_dir
+        self.attn_dir = attn_dir
         self.pred_pdb_dir = pred_pdb_dir
         self.config = config
         self.treat_pdb_as_distillation = treat_pdb_as_distillation
@@ -203,7 +205,13 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
                 )
         else:
             embedding_dir = None
-
+        
+        if self.attn_dir is not None:
+            attn_path_H = os.path.join(self.attn_dir, name + '_H.oaspt')
+            attn_path_L = os.path.join(self.attn_dir, name + '_L.oaspt')
+        else:
+            attn_path_H = attn_path_L = None
+            
         _alignment_index = None
         if(self._alignment_index is not None):
             alignment_dir = self.alignment_dir
@@ -234,6 +242,8 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
                     is_distillation=self.treat_pdb_as_distillation,
                     chain_id=chain_id,
                     embedding_dir=embedding_dir,
+                    attn_path_H=attn_path_H,
+                    attn_path_L=attn_path_L,
                     resolution=resolution,
                     _alignment_index=_alignment_index,
                 )
@@ -251,6 +261,8 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
                     is_distillation=self.treat_pdb_as_distillation,
                     chain_id=chain_id,
                     embedding_dir=embedding_dir,
+                    attn_path_H=attn_path_H,
+                    attn_path_L=attn_path_L,
                     _alignment_index=_alignment_index,
                 )
                 data["pred_atom_positions"] = pred_data["all_atom_positions"]
@@ -260,6 +272,8 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
                 fasta_path=path,
                 alignment_dir=alignment_dir,
                 embedding_dir=embedding_dir,
+                attn_path_H=attn_path_H,
+                attn_path_L=attn_path_L,
                 _alignment_index=_alignment_index,
             )
 
@@ -557,19 +571,23 @@ class OpenFoldDataModule(pl.LightningDataModule):
         train_data_dir: Optional[str] = None,
         train_alignment_dir: Optional[str] = None,
         train_embedding_dir: Optional[str] = None,
+        train_attn_dir: Optional[str] = None,
         train_chain_data_cache_path: Optional[str] = None,
         pred_train_pdb_dir: Optional[str] = None,
         distillation_data_dir: Optional[str] = None,
         distillation_alignment_dir: Optional[str] = None,
         distillation_embedding_dir: Optional[str] = None,
+        distillation_attn_dir: Optional[str] = None,
         distillation_chain_data_cache_path: Optional[str] = None,
         val_data_dir: Optional[str] = None,
         val_alignment_dir: Optional[str] = None,
         val_embedding_dir: Optional[str] = None,
+        val_attn_dir: Optional[str] = None,
         pred_val_pdb_dir: Optional[str] = None,
         predict_data_dir: Optional[str] = None,
         predict_alignment_dir: Optional[str] = None,
         predict_embedding_dir: Optional[str] = None,
+        predict_attn_dir: Optional[str] = None,
         kalign_binary_path: str = '/usr/bin/kalign',
         train_mapping_path: Optional[str] = None,
         distillation_mapping_path: Optional[str] = None,
@@ -589,21 +607,25 @@ class OpenFoldDataModule(pl.LightningDataModule):
         self.train_data_dir = train_data_dir
         self.train_alignment_dir = train_alignment_dir
         self.train_embedding_dir = train_embedding_dir
+        self.train_attn_dir = train_attn_dir
         self.train_chain_data_cache_path = train_chain_data_cache_path
         self.pred_train_pdb_dir = pred_train_pdb_dir
         self.distillation_data_dir = distillation_data_dir
         self.distillation_alignment_dir = distillation_alignment_dir
         self.distillation_embedding_dir = distillation_embedding_dir
+        self.distillation_attn_dir = distillation_attn_dir
         self.distillation_chain_data_cache_path = (
             distillation_chain_data_cache_path
         )
         self.val_data_dir = val_data_dir
         self.val_alignment_dir = val_alignment_dir
         self.val_embedding_dir = val_embedding_dir
+        self.val_attn_dir = val_attn_dir
         self.pred_val_pdb_dir = pred_val_pdb_dir
         self.predict_data_dir = predict_data_dir
         self.predict_alignment_dir = predict_alignment_dir
         self.predict_embedding_dir = predict_embedding_dir
+        self.predict_attn_dir = predict_attn_dir
         self.kalign_binary_path = kalign_binary_path
         self.train_mapping_path = train_mapping_path
         self.distillation_mapping_path = distillation_mapping_path
@@ -661,6 +683,7 @@ class OpenFoldDataModule(pl.LightningDataModule):
                 data_dir=self.train_data_dir,
                 alignment_dir=self.train_alignment_dir,
                 embedding_dir=self.train_embedding_dir,
+                attn_dir=self.train_attn_dir,
                 pred_pdb_dir=self.pred_train_pdb_dir,
                 mapping_path=self.train_mapping_path,
                 max_template_hits=self.config.train.max_template_hits,
@@ -679,6 +702,7 @@ class OpenFoldDataModule(pl.LightningDataModule):
                     data_dir=self.distillation_data_dir,
                     alignment_dir=self.distillation_alignment_dir,
                     embedding_dir=self.distillation_embedding_dir,
+                    attn_dir=self.distillation_attn_dir,
                     mapping_path=self.distillation_mapping_path,
                     max_template_hits=self.train.max_template_hits,
                     treat_pdb_as_distillation=True,
@@ -717,6 +741,7 @@ class OpenFoldDataModule(pl.LightningDataModule):
                     data_dir=self.val_data_dir,
                     alignment_dir=self.val_alignment_dir,
                     embedding_dir=self.val_embedding_dir,
+                    attn_dir=self.val_attn_dir,
                     pred_pdb_dir=self.pred_val_pdb_dir,
                     mapping_path=None,
                     max_template_hits=self.config.eval.max_template_hits,
@@ -731,6 +756,7 @@ class OpenFoldDataModule(pl.LightningDataModule):
                 data_dir=self.predict_data_dir,
                 alignment_dir=self.predict_alignment_dir,
                 embedding_dir=self.predict_embedding_dir,
+                attn_dir=self.predict_attn_dir,
                 mapping_path=None,
                 max_template_hits=self.config.predict.max_template_hits,
                 mode="predict",

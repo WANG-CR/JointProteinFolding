@@ -41,6 +41,10 @@ python scripts_evaluate/get_metric_dir.py \
 
 #######################
 YAML_CONFIG_PRESET=cat
+VERSION=oas_v1
+python scripts_evaluate/renumber_dir.py \
+    $WORK_DIR/output/rosetta_benchmark/${YAML_CONFIG_PRESET}-${VERSION} \
+    $WORK_DIR/output/rosetta_benchmark/${YAML_CONFIG_PRESET}-${VERSION}-renum
 VERSION=narval_v1
 python scripts_evaluate/renumber_dir.py \
     $WORK_DIR/output/rosetta_benchmark/${YAML_CONFIG_PRESET}-${VERSION} \
@@ -148,4 +152,7 @@ python scripts_evaluate/ensemble_by_distance.py \
     --pdb_dir6 $WORK_DIR/output/rosetta_benchmark/cat-v4-renum \
 python scripts_evaluate/get_metric_dir.py \
     $WORK_DIR/output/rosetta_benchmark/distance_ensemble \
+    $WORK_DIR/database/pdb/rosetta-renum
+python scripts_evaluate/get_metric_dir.py \
+    $WORK_DIR/output/rosetta_benchmark/cat-oas_v1-renum \
     $WORK_DIR/database/pdb/rosetta-renum

@@ -450,6 +450,24 @@ class DataPipeline:
     ):
         self.template_featurizer = template_featurizer
 
+    def _parse_attn_data(
+        self,
+        attn_path_H: str,
+        attn_path_L: str,
+    ) -> Mapping[str, Any]:
+
+        attn_data_H = torch.load(attn_path_H).numpy().astype(np.float32)
+        attn_data_L = torch.load(attn_path_L).numpy().astype(np.float32)
+        H_len = attn_data_H.shape[0]
+        L_len = attn_data_L.shape[0]
+        seq_len = H_len + L_len
+        dim = attn_data_H.shape[-1]
+        attn_data = np.zeros((seq_len, seq_len, dim), dtype=np.float32)
+        attn_data[:H_len, :H_len] = attn_data_H
+        attn_data[H_len:, H_len:] = attn_data_L
+
+        return {"residue_attn": attn_data}
+
     def _parse_emb_data(
         self,
         embedding_dir: str,
@@ -657,6 +675,8 @@ class DataPipeline:
         fasta_path: str,
         alignment_dir: str,
         embedding_dir: Optional[str] = None,
+        attn_path_H: Optional[str] = None,
+        attn_path_L: Optional[str] = None,
         _alignment_index: Optional[str] = None,
         is_antibody: bool = True,
     ) -> FeatureDict:
@@ -707,7 +727,11 @@ class DataPipeline:
             padding_size=1280,
             _alignment_index=_alignment_index,
         )
-        
+        if attn_path_H is not None and attn_path_L is not None:
+            emb_features.update(
+                self._parse_attn_data(attn_path_H, attn_path_L)
+            )
+
         return {
             **sequence_features,
             **msa_features, 
@@ -774,6 +798,8 @@ class DataPipeline:
         is_distillation: bool = True,
         chain_id: Optional[str] = None,
         embedding_dir: Optional[str] = None,
+        attn_path_H: Optional[str] = None,
+        attn_path_L: Optional[str] = None,
         resolution: Optional[float] = None,
         _alignment_index: Optional[str] = None,
         is_antibody: bool = True,
@@ -813,6 +839,10 @@ class DataPipeline:
             padding_size=1280,
             _alignment_index=_alignment_index,
         )
+        if attn_path_H is not None and attn_path_L is not None:
+            emb_features.update(
+                self._parse_attn_data(attn_path_H, attn_path_L)
+            )
         
         return {
             **pdb_feats,

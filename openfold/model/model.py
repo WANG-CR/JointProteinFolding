@@ -78,6 +78,7 @@ class AlphaFold(nn.Module):
         self.input_embedder = InputEmbedder(
             **config["input_embedder"],
             residue_emb_cfg=config["residue_emb"],
+            residue_attn_cfg=config["residue_attn"],
         )
         self.recycling_embedder = RecyclingEmbedder(
             **config["recycling_embedder"],
@@ -214,7 +215,10 @@ class AlphaFold(nn.Module):
         msa_mask = feats["msa_mask"]
 
         # Initialize the MSA and pair representations
-
+        if self.config.residue_attn.enabled:
+            attn_feat = feats["residue_attn"]
+        else:
+            attn_feat = None
         # m: [*, S_c, N, C_m]
         # z: [*, N, N, C_z]
         m, z, residue_emb = self.input_embedder(
@@ -222,6 +226,7 @@ class AlphaFold(nn.Module):
             feats["residue_index"],
             feats["msa_feat"],
             feats["residue_emb"],
+            attn=attn_feat,
         )
 
         # Initialize the recycling embeddings, if needs be

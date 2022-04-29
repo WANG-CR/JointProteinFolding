@@ -15,7 +15,7 @@
 
 import torch
 import torch.nn as nn
-from typing import Tuple
+from typing import Optional, Tuple
 import ml_collections as mlc
 
 from openfold.model.primitives import Linear, LayerNorm
@@ -37,6 +37,7 @@ class InputEmbedder(nn.Module):
         c_m: int,
         relpos_k: int,
         residue_emb_cfg: mlc.ConfigDict,
+        residue_attn_cfg: mlc.ConfigDict,
         **kwargs,
     ):
         """
@@ -60,6 +61,7 @@ class InputEmbedder(nn.Module):
         self.c_z = c_z
         self.c_m = c_m
         self.residue_emb_cfg = residue_emb_cfg
+        self.residue_attn_cfg = residue_attn_cfg
 
         self.linear_tf_z_i = Linear(tf_dim, c_z)
         self.linear_tf_z_j = Linear(tf_dim, c_z)
@@ -78,6 +80,10 @@ class InputEmbedder(nn.Module):
                 self.linear_emb_m = nn.ModuleList(
                     [Linear(emb_input_dim, c_m) for i in range(self.residue_emb_cfg["num_emb_feats"])]
                 )
+        # residue_attn enabled
+        if self.residue_attn_cfg["enabled"]:
+            attn_input_dim = self.residue_attn_cfg["c_emb"]
+            self.linear_attn = Linear(attn_input_dim, c_z)
 
         # RPE stuff
         self.relpos_k = relpos_k
@@ -107,6 +113,7 @@ class InputEmbedder(nn.Module):
         ri: torch.Tensor,
         msa: torch.Tensor,
         emb: torch.Tensor,
+        attn: Optional[torch.Tensor],
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Args:
@@ -118,6 +125,8 @@ class InputEmbedder(nn.Module):
                 "msa_feat" features of shape [*, N_clust, N_res, msa_dim]
             emb:
                 "residue_emb" features of shape [*, N_model, N_res, emb_dim] from pre-trained language models.
+            attn:
+                "residue_attn" features of shape [*, N_res, N_res, attn_dim]
         Returns:
             msa_emb:
                 [*, N_clust, N_res, C_m] MSA embedding
@@ -182,11 +191,16 @@ class InputEmbedder(nn.Module):
                 residue_emb_z_i, residue_emb_z_j,
                 tf_m, residue_emb_m
             )
-            
-                    
+
         # [*, N_res, N_res, c_z]
         pair_emb = tf_emb_i[..., None, :] + tf_emb_j[..., None, :, :]
         pair_emb = pair_emb + self.relpos(ri.type(pair_emb.dtype))
+        
+        # residue_attn enabled
+        if self.residue_attn_cfg["enabled"]:
+            assert attn is not None
+            attn_feat = self.linear_attn(attn)
+            pair_emb = pair_emb + attn_feat
 
         # [*, N_clust, N_res, c_m]
         n_clust = msa.shape[-3]

@@ -82,12 +82,20 @@ python scripts_database/extract_antiberty.py \
     $SCRATCH/biofold/pretrained_embeddings/oas_antiberty/${DATABASE_VERSION}_train_feat \
     $SCRATCH/biofold/pretrained_embeddings/oas_antiberty/${DATABASE_VERSION}_train_attn \
     $OAS_MODEL_PATH \
+python scripts_database/merge_esm.py \
+    $SCRATCH/biofold/pretrained_embeddings/oas_antiberty/${DATABASE_VERSION}_train_feat \
+    $SCRATCH/biofold/pretrained_embeddings/oas_antiberty/${DATABASE_VERSION}_train_feat_merged \
+    --model_name oas_antiberty
 
 python scripts_database/extract_antiberty.py \
     $DATABASE_DIR/fasta/merged/${DATABASE_VERSION}_valid.fasta \
     $SCRATCH/biofold/pretrained_embeddings/oas_antiberty/${DATABASE_VERSION}_valid_feat \
     $SCRATCH/biofold/pretrained_embeddings/oas_antiberty/${DATABASE_VERSION}_valid_attn \
     $OAS_MODEL_PATH \
+python scripts_database/merge_esm.py \
+    $SCRATCH/biofold/pretrained_embeddings/oas_antiberty/${DATABASE_VERSION}_valid_feat \
+    $SCRATCH/biofold/pretrained_embeddings/oas_antiberty/${DATABASE_VERSION}_valid_feat_merged \
+    --model_name oas_antiberty
 
 python scripts_database/extract_antiberty.py \
     $DATABASE_DIR/fasta/merged/rosetta.fasta \
@@ -104,3 +112,7 @@ python scripts_database/extract_antiberty.py \
     $SCRATCH/biofold/pretrained_embeddings/oas_antiberty/therapeutics_feat \
     $SCRATCH/biofold/pretrained_embeddings/oas_antiberty/therapeutics_attn \
     $OAS_MODEL_PATH \
+python scripts_database/merge_esm.py \
+    $SCRATCH/biofold/pretrained_embeddings/oas_antiberty/therapeutics_feat \
+    $SCRATCH/biofold/pretrained_embeddings/oas_antiberty/therapeutics_feat_merged \
+    --model_name oas_antiberty
