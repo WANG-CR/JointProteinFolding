@@ -84,6 +84,8 @@ class InputEmbedder(nn.Module):
         if self.residue_attn_cfg["enabled"]:
             attn_input_dim = self.residue_attn_cfg["c_emb"]
             self.linear_attn = Linear(attn_input_dim, c_z)
+            # self.layer_norm_attn = LayerNorm(c_z)
+            # self.relu_attn = nn.ReLU()
 
         # RPE stuff
         self.relpos_k = relpos_k

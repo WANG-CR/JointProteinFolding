@@ -8,6 +8,7 @@ echo env done
 WORK_DIR=$SCRATCH/biofold
 EMBED_DIR=$WORK_DIR/pretrained_embeddings/esm1b/rosetta_merged
 EMBED_DIR2=$WORK_DIR/pretrained_embeddings/oas_antiberty/rosetta_feat_merged
+ATTN_DIR=$WORK_DIR/pretrained_embeddings/oas_antiberty/rosetta_attn
 
 # 2. batch inference
 YAML_CONFIG_PRESET=replace
@@ -194,6 +195,22 @@ python batchrun_pretrained_biofold.py \
     --yaml_config_preset yaml_config/${YAML_CONFIG_PRESET}.yml \
     --output_dir $WORK_DIR/output/rosetta_benchmark/${YAML_CONFIG_PRESET}-${VERSION} \
     --residue_embedding_dir $EMBED_DIR/ \
+    --model_device cuda:0 \
+    --no_recycling_iters 3 \
+    --relax false \
+
+YAML_CONFIG_PRESET=cat_attn
+VERSION=attn_v1
+CKPT_NAME=epoch35-step17135-val_loss=0.937.ckpt
+python batchrun_pretrained_biofold.py \
+    $WORK_DIR/database/fasta/merged/rosetta.fasta \
+    0 \
+    $WORK_DIR/output/wandb_biofold/${YAML_CONFIG_PRESET}-${VERSION}/checkpoints/${CKPT_NAME} \
+    --pdb_path $WORK_DIR/database/pdb/rosetta \
+    --yaml_config_preset yaml_config/${YAML_CONFIG_PRESET}.yml \
+    --output_dir $WORK_DIR/output/rosetta_benchmark/${YAML_CONFIG_PRESET}-${VERSION} \
+    --residue_embedding_dir $EMBED_DIR2/ \
+    --residue_attn_dir  $ATTN_DIR/ \
     --model_device cuda:0 \
     --no_recycling_iters 3 \
     --relax false \

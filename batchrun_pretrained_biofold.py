@@ -182,10 +182,22 @@ def main(args):
         if not os.path.exists(local_alignment_dir):
             local_alignment_dir = alignment_dir
 
+        if args.residue_attn_dir is not None:
+            attn_path_H = os.path.join(
+                args.residue_attn_dir, tag + '_H.oaspt'
+            )
+            attn_path_L = os.path.join(
+                args.residue_attn_dir, tag + '_L.oaspt'
+            )
+        else:
+            attn_path_H = attn_path_L = None
+
         feature_dict = data_processor.process_fasta(
             fasta_path=fasta_path,
             alignment_dir=local_alignment_dir,
             embedding_dir=local_residue_embedding_dir,
+            attn_path_H=attn_path_H,
+            attn_path_L=attn_path_L,
             _alignment_index=None,
             is_antibody=True,
         )
@@ -501,6 +513,10 @@ if __name__ == "__main__":
     parser.add_argument(
         "--pred_pdb_dir", type=str, default=None,
         help="Directory containing predicted pdb structures"
+    )
+    parser.add_argument(
+        "--residue_attn_dir", type=str, default=None,
+        help="Directory containing residue attention features"
     )
     parser.add_argument(
         "--relax", type=bool_type, default=True,
