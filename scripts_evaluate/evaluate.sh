@@ -49,6 +49,14 @@ VERSION=narval_v1
 python scripts_evaluate/renumber_dir.py \
     $WORK_DIR/output/rosetta_benchmark/${YAML_CONFIG_PRESET}-${VERSION} \
     $WORK_DIR/output/rosetta_benchmark/${YAML_CONFIG_PRESET}-${VERSION}-renum
+python scripts_evaluate/ensemble_dir.py \
+    --pred_dir $WORK_DIR/output/rosetta_benchmark/${YAML_CONFIG_PRESET}-narval_v1-seed1 \
+    --target_dir $WORK_DIR/output/rosetta_benchmark/${YAML_CONFIG_PRESET}-5seed_ensemble \
+    --pred_dir2 $WORK_DIR/output/rosetta_benchmark/${YAML_CONFIG_PRESET}-narval_v1-seed2 \
+    --pred_dir3 $WORK_DIR/output/rosetta_benchmark/${YAML_CONFIG_PRESET}-narval_v1-seed3 \
+    --pred_dir4 $WORK_DIR/output/rosetta_benchmark/${YAML_CONFIG_PRESET}-narval_v1-seed4 \
+    --pred_dir5 $WORK_DIR/output/rosetta_benchmark/${YAML_CONFIG_PRESET}-narval_v1-seed5 \
+
 VERSION=v2
 python scripts_evaluate/renumber_dir.py \
     $WORK_DIR/output/rosetta_benchmark/${YAML_CONFIG_PRESET}-${VERSION} \
@@ -155,4 +163,11 @@ python scripts_evaluate/get_metric_dir.py \
     $WORK_DIR/database/pdb/rosetta-renum
 python scripts_evaluate/get_metric_dir.py \
     $WORK_DIR/output/rosetta_benchmark/cat-oas_v1-renum \
+    $WORK_DIR/database/pdb/rosetta-renum
+
+python scripts_evaluate/renumber_dir.py \
+    $WORK_DIR/output/rosetta_benchmark/cat-5seed_ensemble \
+    $WORK_DIR/output/rosetta_benchmark/cat-5seed_ensemble-renum
+python scripts_evaluate/get_metric_dir.py \
+    $WORK_DIR/output/rosetta_benchmark/cat-5seed_ensemble-renum \
     $WORK_DIR/database/pdb/rosetta-renum

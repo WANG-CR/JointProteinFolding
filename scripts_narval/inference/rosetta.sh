@@ -98,11 +98,12 @@ python batchrun_pretrained_biofold.py \
     $WORK_DIR/output/wandb_biofold/${YAML_CONFIG_PRESET}-${VERSION}/checkpoints/${CKPT_NAME} \
     --pdb_path $WORK_DIR/database/pdb/rosetta \
     --yaml_config_preset yaml_config/${YAML_CONFIG_PRESET}.yml \
-    --output_dir $WORK_DIR/output/rosetta_benchmark/${YAML_CONFIG_PRESET}-${VERSION} \
+    --output_dir $WORK_DIR/output/rosetta_benchmark/${YAML_CONFIG_PRESET}-${VERSION}-seed5 \
     --residue_embedding_dir $EMBED_DIR/ \
     --model_device cuda:0 \
     --no_recycling_iters 3 \
     --relax false \
+    --seed 202205
 
 YAML_CONFIG_PRESET=cat
 VERSION=v2
