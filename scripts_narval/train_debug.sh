@@ -73,10 +73,10 @@ srun python train_biofold.py $TRAIN_DIR/ $TRAIN_DIR/ $TRAIN_DIR/ \
     --yaml_config_preset yaml_config/${YAML_CONFIG_PRESET}.yml \
     --val_data_dir $VALID_DIR/ \
     --val_alignment_dir $VALID_DIR/ \
-    --precision 16 --gpus 1 --log_every_n_steps 50 \
+    --precision 16 --gpus 4 --log_every_n_steps 1 \
     --wandb true \
     --wandb_entity chenceshi \
-    --wandb_version test_code \
+    --wandb_version debug_distributed_fp16 \
     --wandb_project wandb_biofold \
     --deepspeed_config_path deepspeed_config_scc.json \
     --sabdab_summary_file $WORK_DIR/database/info/20220319_99_True_All__4_sabdab_summary.tsv \
