@@ -163,6 +163,8 @@ def backbone_loss(
     clamp_distance: float = 10.0,
     loss_unit_distance: float = 10.0,
     eps: float = 1e-4,
+    loop_mask: Optional[torch.Tensor] = None,
+    loop_only: bool = False,
     **kwargs,
 ) -> torch.Tensor:
     pred_aff = Rigid.from_tensor_7(traj)
@@ -178,6 +180,9 @@ def backbone_loss(
     # outright. This one hasn't been composed a bunch of times, though, so
     # it might be fine.
     gt_aff = Rigid.from_tensor_4x4(backbone_rigid_tensor)
+
+    if loop_only:
+        backbone_rigid_mask = backbone_rigid_mask * loop_mask
 
     fape_loss = compute_fape(
         pred_aff,
@@ -225,6 +230,8 @@ def sidechain_loss(
     clamp_distance: float = 10.0,
     length_scale: float = 10.0,
     eps: float = 1e-4,
+    loop_mask: Optional[torch.Tensor] = None,
+    loop_only: bool = False,
     **kwargs,
 ) -> torch.Tensor:
     renamed_gt_frames = (
@@ -240,7 +247,11 @@ def sidechain_loss(
     sidechain_frames = Rigid.from_tensor_4x4(sidechain_frames)
     renamed_gt_frames = renamed_gt_frames.view(*batch_dims, -1, 4, 4) # [*, N * 8, 4, 4]
     renamed_gt_frames = Rigid.from_tensor_4x4(renamed_gt_frames)
+
+    if loop_only:
+        rigidgroups_gt_exists = rigidgroups_gt_exists * loop_mask[..., None] # [*, N, 8]
     rigidgroups_gt_exists = rigidgroups_gt_exists.reshape(*batch_dims, -1) # [*, N * 8]
+
     sidechain_atom_pos = sidechain_atom_pos[-1]
     sidechain_atom_pos = sidechain_atom_pos.view(*batch_dims, -1, 3)
     renamed_atom14_gt_positions = renamed_atom14_gt_positions.view(
@@ -267,15 +278,18 @@ def fape_loss(
     out: Dict[str, torch.Tensor],
     batch: Dict[str, torch.Tensor],
     config: ml_collections.ConfigDict,
+    loop_only: bool = False,
 ) -> torch.Tensor:
     bb_loss = backbone_loss(
         traj=out["sm"]["frames"],
+        loop_only=loop_only,
         **{**batch, **config.backbone},
     )
 
     sc_loss = sidechain_loss(
         out["sm"]["sidechain_frames"],
         out["sm"]["positions"],
+        loop_only=loop_only,
         **{**batch, **config.sidechain},
     )
 
@@ -297,6 +311,8 @@ def supervised_chi_loss(
     chi_weight: float,
     angle_norm_weight: float,
     eps=1e-6,
+    loop_mask: Optional[torch.Tensor] = None,
+    loop_only: bool = False,
     **kwargs,
 ) -> torch.Tensor:
     """
@@ -347,6 +363,11 @@ def supervised_chi_loss(
     sq_chi_error = sq_chi_error.permute(
         *range(len(sq_chi_error.shape))[1:-2], 0, -2, -1
     )
+
+    if loop_only:
+        chi_mask = chi_mask * loop_mask[..., None]
+        seq_mask = seq_mask * loop_mask
+
     sq_chi_loss = masked_mean(
         chi_mask[..., None, :, :], sq_chi_error, dim=(-1, -2, -3)
     )
@@ -494,6 +515,8 @@ def lddt_loss(
     min_resolution: float = 0.1,
     max_resolution: float = 3.0,
     eps: float = 1e-10,
+    loop_mask: Optional[torch.Tensor] = None,
+    loop_only: bool = False,
     **kwargs,
 ) -> torch.Tensor:
     n = all_atom_mask.shape[-2]
@@ -501,6 +524,9 @@ def lddt_loss(
     ca_pos = residue_constants.atom_order["CA"]
     all_atom_pred_pos = all_atom_pred_pos[..., ca_pos, :]
     all_atom_positions = all_atom_positions[..., ca_pos, :]
+
+    if loop_only:
+        all_atom_mask = all_atom_mask * loop_mask[..., None]
     all_atom_mask = all_atom_mask[..., ca_pos : (ca_pos + 1)]  # keep dim
 
     score = lddt(
@@ -543,6 +569,8 @@ def distogram_loss(
     max_bin=21.6875,
     no_bins=64,
     eps=1e-6,
+    loop_mask: Optional[torch.Tensor] = None,
+    loop_only: bool = False,
     **kwargs,
 ):
 
@@ -569,6 +597,9 @@ def distogram_loss(
         logits,
         torch.nn.functional.one_hot(true_bins, no_bins),
     )
+
+    if loop_only:
+        pseudo_beta_mask = pseudo_beta_mask * loop_mask
 
     square_mask = pseudo_beta_mask[..., None] * pseudo_beta_mask[..., None, :]
 
@@ -1495,8 +1526,13 @@ def experimentally_resolved_loss(
     min_resolution: float,
     max_resolution: float,
     eps: float = 1e-8,
+    loop_mask: Optional[torch.Tensor] = None,
+    loop_only: bool = False,
     **kwargs,
 ) -> torch.Tensor:
+    if loop_only:
+        atom37_atom_exists = atom37_atom_exists * loop_mask[..., None]
+
     errors = sigmoid_cross_entropy(logits, all_atom_mask)
     loss = torch.sum(errors * atom37_atom_exists, dim=-1)
     loss = loss / (eps + torch.sum(atom37_atom_exists, dim=(-1, -2)))
@@ -1535,6 +1571,49 @@ def masked_msa_loss(logits, true_msa, bert_mask, eps=1e-8, **kwargs):
     loss = torch.sum(loss, dim=-1)
     scale = 0.5
     denom = eps + torch.sum(scale * bert_mask, dim=(-1, -2))
+    loss = loss / denom[..., None]
+    loss = torch.sum(loss, dim=-1)
+    loss = loss * scale
+
+    loss = torch.mean(loss)
+
+    return loss
+
+
+def masked_seq_loss(logits, aatype, loop_mask, eps=1e-8, **kwargs):
+    """
+    Computes sequence type cross-entropy loss.
+
+    Args:
+        logits: [traj, *, N_res, 21] predicted seq type logits
+        aatype: [*, N_res] true seq type
+        loop_mask: [*, N_res] loop mask
+    Returns:
+        seq type loss
+    """
+    # [traj, *, N_res]
+    residue_type_one_hot = torch.nn.functional.one_hot(
+        aatype,
+        residue_constants.restype_num + 1,
+    )
+    residue_type_one_hot = residue_type_one_hot[None]
+    errors = softmax_cross_entropy(
+        logits, residue_type_one_hot
+    )
+    # The ol' switcheroo [*, traj, N_res]
+    errors = errors.permute(
+        *range(len(errors.shape))[1:-1], 0, -1
+    )
+    loop_mask = loop_mask[..., None, :].expand_as(errors)
+    # FP16-friendly averaging. Equivalent to:
+    # loss = (
+    #     torch.sum(errors * loop_mask, dim=(-1, -2)) /
+    #     (eps + torch.sum(loop_mask, dim=(-1, -2)))
+    # )
+    loss = errors * loop_mask
+    loss = torch.sum(loss, dim=-1)
+    scale = 0.5
+    denom = eps + torch.sum(scale * loop_mask, dim=(-1, -2))
     loss = loss / denom[..., None]
     loss = torch.sum(loss, dim=-1)
     loss = loss * scale
@@ -1606,6 +1685,7 @@ class AlphaFoldLoss(nn.Module):
     def __init__(self, config):
         super(AlphaFoldLoss, self).__init__()
         self.config = config
+
     def forward(self, out, batch, _return_breakdown=False):
         if "violation" not in out.keys() and self.config.violation.weight:
             out["violation"] = find_structural_violations(
@@ -1625,29 +1705,38 @@ class AlphaFoldLoss(nn.Module):
         loss_fns = {
             "distogram": lambda: distogram_loss(
                 logits=out["distogram_logits"],
+                loop_only=False,
                 **{**batch, **self.config.distogram},
             ),
             "experimentally_resolved": lambda: experimentally_resolved_loss(
                 logits=out["experimentally_resolved_logits"],
+                loop_only=False,
                 **{**batch, **self.config.experimentally_resolved},
             ),
             "fape": lambda: fape_loss(
                 out,
                 batch,
                 self.config.fape,
+                loop_only=False,
             ),
             "lddt": lambda: lddt_loss(
                 logits=out["lddt_logits"], # final step in the structure module
                 all_atom_pred_pos=out["final_atom_positions"],
+                loop_only=False,
                 **{**batch, **self.config.lddt},
             ),
             "masked_msa": lambda: masked_msa_loss(
                 logits=out["masked_msa_logits"],
                 **{**batch, **self.config.masked_msa},
             ),
+            "masked_seq": lambda: masked_seq_loss(
+                logits=out["sm"]["masked_seq_logits"],
+                **{**batch, **self.config.masked_seq},
+            ),
             "supervised_chi": lambda: supervised_chi_loss(
                 out["sm"]["angles"], # each step in the structure module
                 out["sm"]["unnormalized_angles"],
+                loop_only=False,
                 **{**batch, **self.config.supervised_chi},
             ),
             "violation": lambda: violation_loss(

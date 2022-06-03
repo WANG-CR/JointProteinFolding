@@ -24,6 +24,7 @@ from openfold.np.residue_constants import (
     restype_atom14_to_rigid_group,
     restype_atom14_mask,
     restype_atom14_rigid_group_positions,
+    restype_num,
 )
 from openfold.utils.feats import (
     frames_and_literature_positions_to_atom14_pos,
@@ -156,6 +157,75 @@ class AngleResnet(nn.Module):
         s = s / norm_denom
 
         return unnormalized_s, s
+
+
+class SeqResnet(nn.Module):
+    """
+    Predict sequence type from single representation
+    """
+
+    def __init__(self, c_in, c_hidden, no_blocks, no_types):
+        """
+        Args:
+            c_in:
+                Input channel dimension
+            c_hidden:
+                Hidden channel dimension
+            no_blocks:
+                Number of resnet blocks
+            no_angles:
+                Number of torsion angles to generate
+        """
+        super(AngleResnet, self).__init__()
+
+        self.c_in = c_in
+        self.c_hidden = c_hidden
+        self.no_blocks = no_blocks
+        self.no_types = no_types
+
+        self.linear_in = Linear(self.c_in, self.c_hidden)
+        self.linear_initial = Linear(self.c_in, self.c_hidden)
+
+        self.layers = nn.ModuleList()
+        for _ in range(self.no_blocks):
+            layer = AngleResnetBlock(c_hidden=self.c_hidden)
+            self.layers.append(layer)
+
+        self.linear_out = Linear(self.c_hidden, self.no_types)
+
+        self.relu = nn.ReLU()
+
+    def forward(
+        self, s: torch.Tensor, s_initial: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Args:
+            s:
+                [*, C_hidden] single embedding
+            s_initial:
+                [*, C_hidden] single embedding as of the start of the
+                StructureModule
+        Returns:
+            [*, no_types] predicted logits of sequence type
+        """
+
+
+        # [*, C_hidden]
+        s_initial = self.relu(s_initial)
+        s_initial = self.linear_initial(s_initial)
+        s = self.relu(s)
+        s = self.linear_in(s)
+        s = s + s_initial
+
+        for l in self.layers:
+            s = l(s)
+
+        s = self.relu(s)
+
+        # [*, no_types]
+        s = self.linear_out(s)
+
+        return s
 
 
 class InvariantPointAttention(nn.Module):
@@ -483,6 +553,7 @@ class StructureModule(nn.Module):
         trans_scale_factor,
         epsilon,
         inf,
+        mask_loop_type,
         **kwargs,
     ):
         """
@@ -536,6 +607,7 @@ class StructureModule(nn.Module):
         self.trans_scale_factor = trans_scale_factor
         self.epsilon = epsilon
         self.inf = inf
+        self.mask_loop_type = mask_loop_type
 
         # To be lazily initialized later
         self.default_frames = None
@@ -577,6 +649,14 @@ class StructureModule(nn.Module):
             self.no_angles,
             self.epsilon,
         )
+        
+        if self.mask_loop_type:
+            self.seq_resnet = SeqResnet(
+                self.c_s,
+                self.c_resnet,
+                self.no_resnet_blocks,
+                restype_num + 1,
+            )
 
     def forward(
         self,
@@ -585,6 +665,9 @@ class StructureModule(nn.Module):
         aatype,
         mask=None,
         initial_rigids=None,
+        loop_mask=None,
+        loop_only=False,
+        gt_angles=None,
     ):
         """
         Args:
@@ -634,7 +717,12 @@ class StructureModule(nn.Module):
             s = self.transition(s)
 
             # [*, N]
-            rigids = rigids.compose_q_update_vec(self.bb_update(s))
+            bb_update_ = self.bb_update(s)
+
+            if loop_only:
+                bb_update_ = bb_update_ * (loop_mask[..., None])
+
+            rigids = rigids.compose_q_update_vec(bb_update_)
 
             # To hew as closely as possible to AlphaFold, we convert our
             # quaternion-based transformations to rotation-matrix ones
@@ -653,17 +741,25 @@ class StructureModule(nn.Module):
 
             # [*, N, 7, 2]
             unnormalized_angles, angles = self.angle_resnet(s, s_initial)
+            if loop_only:
+                angles = angles * (loop_mask[..., None, None]) + gt_angles * (1 - loop_mask[..., None, None])
+
+            if self.mask_loop_type:
+                # [*, N, 21]
+                masked_seq_logits = self.seq_resnet(s, s_initial)
+
             scaled_rigids = rigids.scale_translation(self.trans_scale_factor)
 
             if not self.training or i == (self.no_blocks - 1):
+                aatype_ = aatype
                 all_frames_to_global = self.torsion_angles_to_frames(
                     backb_to_global,
                     angles,
-                    aatype,
+                    aatype_,
                 ) # [*, N, 8]
                 pred_xyz = self.frames_and_literature_positions_to_atom14_pos(
                     all_frames_to_global,
-                    aatype,
+                    aatype_,
                 ) # [*, N, 14, 3]
                 all_frames_to_global = all_frames_to_global.to_tensor_4x4() # [*, N, 8, 4, 4]
             else:
@@ -691,6 +787,8 @@ class StructureModule(nn.Module):
                 "sidechain_frames": all_frames_to_global, # [*, N, 8, 4, 4]
                 "positions": pred_xyz, # [*, N, 14, 3]
             }
+            if self.mask_loop_type:
+                preds.update({"masked_seq_logits": masked_seq_logits})
 
             outputs.append(preds)
 

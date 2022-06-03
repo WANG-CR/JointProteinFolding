@@ -226,6 +226,7 @@ class AlphaFold(nn.Module):
             feats["residue_index"],
             feats["msa_feat"],
             feats["residue_emb"],
+            feats["loop_mask"],
             attn=attn_feat,
         )
 
@@ -357,12 +358,20 @@ class AlphaFold(nn.Module):
         outputs["single"] = s
 
         # Predict 3D structure
+        if self.globals.loop_only:
+            gt_angles = feats["torsion_angles_sin_cos"]
+        else:
+            gt_angles = None
+
         outputs["sm"] = self.structure_module(
             s,
             z,
             feats["aatype"],
             mask=feats["seq_mask"].to(dtype=s.dtype),
             initial_rigids=initial_rigids,
+            loop_mask=feats["loop_mask"],
+            loop_only=self.globals.loop_only,
+            gt_angles=gt_angles,
         )
         outputs["final_atom_positions"] = atom14_to_atom37(
             outputs["sm"]["positions"][-1], feats
@@ -473,6 +482,7 @@ class AlphaFold(nn.Module):
                 assert (
                     "pred_atom_positions" in feats and "backbone_pred_rigid_7s" in feats
                 )
+                assert not self.globals.loop_only
                 initial_rigids = Rigid.from_tensor_7(feats["backbone_pred_rigid_7s"])
                 initial_rigids = initial_rigids.scale_translation(
                     1.0 / self.structure_module.trans_scale_factor
@@ -480,6 +490,23 @@ class AlphaFold(nn.Module):
                 if x_prev is None:
                     # [*, N, 37, 3]
                     x_prev = feats["pred_atom_positions"]
+            elif self.globals.loop_only and "backbone_rigid_tensor_7s" in feats:
+                gt_aff_7s = feats["backbone_rigid_tensor_7s"] # [*, N, 7]
+                gt_aff_7s[..., 4:] = gt_aff_7s[..., 4:] * (
+                    1.0 / self.structure_module.trans_scale_factor
+                )
+                identity_rigid_7s = torch.zeros_like(gt_aff_7s)
+                identity_rigid_7s[..., 0] = 1
+                loop_mask_expand = feats["loop_mask"][..., None].expand_as(gt_aff_7s) # [*, N, 7]
+                # only predict the loop
+                initial_rigids = loop_mask_expand * identity_rigid_7s + (1 - loop_mask_expand) * gt_aff_7s
+                initial_rigids = Rigid.from_tensor_7(initial_rigids)
+                if x_prev is None:
+                    # [*, N, 37, 3]
+                    x_prev = feats["all_atom_positions"]
+                    x_prev_zero = torch.zeros_like(x_prev)
+                    loop_mask_expand = feats["loop_mask"][..., None, None].expand_as(x_prev) # [*, N, 37, 3]
+                    x_prev = loop_mask_expand * x_prev_zero + (1 - loop_mask_expand) * x_prev
             else:
                 initial_rigids = None
 

@@ -137,6 +137,7 @@ experimentally_resolved_weight = mlc.FieldReference(0.0, field_type=float)
 fape_weight = mlc.FieldReference(1.0, field_type=float)
 lddt_weight = mlc.FieldReference(0.01, field_type=float)
 masked_msa_weight = mlc.FieldReference(2.0, field_type=float)
+masked_seq_weight = mlc.FieldReference(0.0, field_type=float)
 supervised_chi_weight = mlc.FieldReference(1.0, field_type=float)
 violation_weight = mlc.FieldReference(0.0, field_type=float)
 tm_weight = mlc.FieldReference(0.0, field_type=float)
@@ -156,6 +157,7 @@ residue_emb_enabled = mlc.FieldReference(False, field_type=bool)
 residue_attn_enabled = mlc.FieldReference(False, field_type=bool)
 embed_template_torsion_angles = mlc.FieldReference(True, field_type=bool)
 is_refine = mlc.FieldReference(False, field_type=bool)
+loop_only = mlc.FieldReference(False, field_type=bool)
 
 NUM_RES = "num residues placeholder"
 NUM_MSA_SEQ = "msa placeholder"
@@ -346,6 +348,7 @@ config = mlc.ConfigDict(
             "c_s": c_s,
             "eps": eps,
             "low_prec": False,
+            "loop_only": loop_only,
         },
         "optimizer": {
             "lr": 0.001,
@@ -367,6 +370,7 @@ config = mlc.ConfigDict(
                 "c_z": c_z,
                 "c_m": c_m,
                 "relpos_k": 32,
+                "mask_loop_type": masked_seq_weight,
             },
             "recycling_embedder": {
                 "c_z": c_z,
@@ -489,6 +493,7 @@ config = mlc.ConfigDict(
                 "trans_scale_factor": 10,
                 "epsilon": eps,  # 1e-12,
                 "inf": 1e5,
+                "mask_loop_type": masked_seq_weight,
             },
             "heads": {
                 "lddt": {
@@ -567,6 +572,10 @@ config = mlc.ConfigDict(
                 "eps": eps,  # 1e-8,
                 "weight": masked_msa_weight,
             },
+            "masked_seq": {
+                "eps": eps,  # 1e-8,
+                "weight": masked_seq_weight,
+            },
             "supervised_chi": {
                 "chi_weight": 0.5,
                 "angle_norm_weight": 0.01,
@@ -589,6 +598,7 @@ config = mlc.ConfigDict(
                 "enabled": tm_enabled,
             },
             "eps": eps,
+            "loop_only": loop_only,
         },
         "ema": {"decay": 0.999},
     }

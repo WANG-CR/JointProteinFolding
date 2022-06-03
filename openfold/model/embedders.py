@@ -36,6 +36,7 @@ class InputEmbedder(nn.Module):
         c_z: int,
         c_m: int,
         relpos_k: int,
+        mask_loop_type: float,
         residue_emb_cfg: mlc.ConfigDict,
         residue_attn_cfg: mlc.ConfigDict,
         **kwargs,
@@ -60,6 +61,7 @@ class InputEmbedder(nn.Module):
 
         self.c_z = c_z
         self.c_m = c_m
+        self.mask_loop_type = mask_loop_type
         self.residue_emb_cfg = residue_emb_cfg
         self.residue_attn_cfg = residue_attn_cfg
 
@@ -115,6 +117,7 @@ class InputEmbedder(nn.Module):
         ri: torch.Tensor,
         msa: torch.Tensor,
         emb: torch.Tensor,
+        loop_mask: torch.Tensor,
         attn: Optional[torch.Tensor],
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
@@ -138,6 +141,13 @@ class InputEmbedder(nn.Module):
                 [*, N_res, C_m] or [*, N_model, N_res, c_m], updated residue embedding
 
         """
+        # mask loop type for loop design
+        if self.mask_loop_type:
+            tf_unk = torch.zeros_like(tf)
+            tf_unk[..., -1] = 1.0
+            loop_mask_expand = loop_mask[..., None].expand_as(tf_unk)
+            tf = loop_mask_expand * tf_unk + (1 - loop_mask_expand) * tf
+
         # [*, N_res, c_z]
         tf_emb_i = self.linear_tf_z_i(tf)
         tf_emb_j = self.linear_tf_z_j(tf)

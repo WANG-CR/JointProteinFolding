@@ -177,15 +177,15 @@ def from_pdb_string_antibody(pdb_str: str, chain_id: Optional[str] = None) -> Pr
     b_factors = []
 
     # define constants of 6 cdr loops
-    # add 2 anchor nodes at each end
+    # now do not add 2 anchor nodes at each end
     # https://www.researchgate.net/figure/CDR-definitions-in-Chothia-numbering_tbl1_337735681
     loop_index = []
-    CDR_H1_RANGE_WITH_ANCHOR = (24, 34) # 1
-    CDR_H2_RANGE_WITH_ANCHOR = (50, 58) # 2
-    CDR_H3_RANGE_WITH_ANCHOR = (93, 104) # 3
-    CDR_L1_RANGE_WITH_ANCHOR = (22, 36) # 4
-    CDR_L2_RANGE_WITH_ANCHOR = (48, 58) # 5
-    CDR_L3_RANGE_WITH_ANCHOR = (87, 99) # 6
+    CDR_H1_RANGE_WITH_ANCHOR = (26, 32) # 1
+    CDR_H2_RANGE_WITH_ANCHOR = (52, 56) # 2
+    CDR_H3_RANGE_WITH_ANCHOR = (95, 102) # 3
+    CDR_L1_RANGE_WITH_ANCHOR = (24, 34) # 4
+    CDR_L2_RANGE_WITH_ANCHOR = (50, 56) # 5
+    CDR_L3_RANGE_WITH_ANCHOR = (89, 97) # 6
     def is_in_range(x, range_slice):
         return x >= range_slice[0] and x <= range_slice[1]
     

@@ -32,6 +32,7 @@ class AuxiliaryHeads(nn.Module):
             "lddt": PerResidueLDDTCaPredictor,
             "distogram": DistogramHead,
             "masked_msa": MaskedMSAHead,
+            # "masked_seq": MaskedSEQHead,
             "experimentally_resolved": ExperimentallyResolvedHead,
         }
         for key in key2head_fn:
@@ -69,6 +70,11 @@ class AuxiliaryHeads(nn.Module):
             # outputs of evoformer
             masked_msa_logits = self.masked_msa(outputs["msa"])
             aux_out["masked_msa_logits"] = masked_msa_logits
+
+        # if hasattr(self, "masked_seq"):
+        #     # outputs of evoformer
+        #     masked_msa_logits = self.masked_msa(outputs["msa"])
+        #     aux_out["masked_msa_logits"] = masked_msa_logits
 
         if hasattr(self, "experimentally_resolved"):
             # outputs of evoformer
@@ -221,6 +227,39 @@ class MaskedMSAHead(nn.Module):
         """
         # [*, N_seq, N_res, C_out]
         logits = self.linear(m)
+        return logits
+
+
+class MaskedSEQHead(nn.Module):
+    """
+    predict the masked sequence type
+    """
+
+    def __init__(self, c_in, c_out, **kwargs):
+        """
+        Args:
+            c_in:
+                SEQ channel dimension
+            c_out:
+                Output channel dimension
+        """
+        super(MaskedMSAHead, self).__init__()
+
+        self.c_in = c_in
+        self.c_out = c_out
+
+        self.linear = Linear(self.c_in, self.c_out, init="final")
+
+    def forward(self, s):
+        """
+        Args:
+            s:
+                [*, N_res, C_in] sequence embedding
+        Returns:
+            [*, N_res, C_out] reconstruction
+        """
+        # [*, N_res, C_out]
+        logits = self.linear(s)
         return logits
 
 
