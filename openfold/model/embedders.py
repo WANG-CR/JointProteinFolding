@@ -143,11 +143,16 @@ class InputEmbedder(nn.Module):
         """
         # mask loop type for loop design
         if self.mask_loop_type:
-            print('mask loop seq type')
+            # print('mask loop seq type')
+            # print(loop_mask.sum())
             tf_unk = torch.zeros_like(tf)
             tf_unk[..., -1] = 1.0
             loop_mask_expand = loop_mask[..., None].expand_as(tf_unk)
             tf = loop_mask_expand * tf_unk + (1 - loop_mask_expand) * tf
+            
+            msa_unk = torch.zeros_like(msa)
+            loop_mask_expand = loop_mask[..., None, :, None].expand_as(msa_unk)
+            msa = loop_mask_expand * msa_unk + (1 - loop_mask_expand) * msa
 
         # [*, N_res, c_z]
         tf_emb_i = self.linear_tf_z_i(tf)
