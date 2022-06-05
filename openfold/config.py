@@ -190,6 +190,7 @@ config = mlc.ConfigDict(
                     "backbone_pred_rigid_7s": [NUM_RES, None],
                     "bert_mask": [NUM_MSA_SEQ, NUM_RES],
                     "chi_angles_sin_cos": [NUM_RES, None, None],
+                    "torsion_angles_sin_cos": [NUM_RES, None, None],
                     "chi_mask": [NUM_RES, None],
                     "extra_deletion_value": [NUM_EXTRA_SEQ, NUM_RES],
                     "extra_has_deletion": [NUM_EXTRA_SEQ, NUM_RES],
@@ -297,6 +298,7 @@ config = mlc.ConfigDict(
                 "crop_size": None,
                 "supervised": False,
                 "is_refine": is_refine,
+                "mask_loop_type": masked_seq_weight,
                 "uniform_recycling": False,
                 "distillation_prob": 0.75, # necessary if distillation dir is provided
             },
@@ -311,6 +313,7 @@ config = mlc.ConfigDict(
                 "crop_size": None, # necessary for batch_size >= 2
                 "supervised": True,
                 "is_refine": is_refine,
+                "mask_loop_type": masked_seq_weight,
                 "uniform_recycling": False,
             },
             "train": {
@@ -325,6 +328,7 @@ config = mlc.ConfigDict(
                 "crop_size": 256,
                 "supervised": True,
                 "is_refine": is_refine,
+                "mask_loop_type": masked_seq_weight,
                 "clamp_prob": 0.9,
                 "max_distillation_msa_clusters": 1000,
                 "uniform_recycling": True,

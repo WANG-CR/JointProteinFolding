@@ -104,7 +104,7 @@ def main(args):
     )
 
     if args.pred_pdb_dir:
-        pdb_pattern = os.path.join(args.pred_pdb_dir, f"{tag}_*.pdb")
+        pdb_pattern = os.path.join(args.pred_pdb_dir, f"{tag}*.pdb")
         pdb_files = glob.glob(pdb_pattern)
         assert len(pdb_files) == 1, f"{len(pdb_files)} pdbs found for {tag}..."
         pdb_file = pdb_files[0]
@@ -120,6 +120,9 @@ def main(args):
             if key not in feature_dict:
                 feature_dict[key] = value
         feature_dict["pred_atom_positions"] = feature_dict["all_atom_positions"]
+        feature_dict["loop_index"] = pdb_feats["loop_index"]
+        feature_dict["aatype"] = pdb_feats["aatype"]
+        # print(feature_dict["aatype"])
 
     feature_dict["no_recycling_iters"] = args.no_recycling_iters
     processed_feature_dict = feature_processor.process_features(

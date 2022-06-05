@@ -231,7 +231,11 @@ def from_pdb_string_antibody(pdb_str: str, chain_id: Optional[str] = None) -> Pr
             if np.sum(mask) < 0.5:
                 # If no known atom positions are reported for the residue then skip it.
                 continue
-            aatype.append(restype_idx)
+            if loop_index_ == 0:
+                aatype.append(restype_idx)
+            else:
+                aatype.append(restype_idx)
+                # aatype.append(residue_constants.restype_num)
             atom_positions.append(pos)
             atom_mask.append(mask)
             residue_index.append(res.id[1] + insertion_code_offset)
@@ -438,9 +442,14 @@ def from_prediction(
         chain_index = np.zeros_like(features["aatype"])
     if loop_index is None:
         loop_index = np.zeros_like(features["aatype"])
+    if "final_pred_aatype" in result:
+        aatype = result["final_pred_aatype"]
+
+    else:
+        aatype = features["aatype"]
 
     return Protein(
-        aatype=features["aatype"],
+        aatype=aatype,
         atom_positions=result["final_atom_positions"],
         atom_mask=result["final_atom_mask"],
         residue_index=features["residue_index"] + 1,

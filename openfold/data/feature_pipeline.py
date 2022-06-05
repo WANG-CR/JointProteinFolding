@@ -63,7 +63,7 @@ def make_data_config(
     if cfg.common.use_templates:
         feature_names += cfg.common.template_features
 
-    if cfg[mode].supervised or cfg[mode].is_refine:
+    if cfg[mode].supervised or cfg[mode].is_refine or mode_cfg.mask_loop_type:
         feature_names += cfg.supervised.supervised_features
 
     return cfg, feature_names

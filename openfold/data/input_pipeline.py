@@ -52,7 +52,7 @@ def nonensembled_transform_fns(common_cfg, mode_cfg):
         ]
     )
 
-    if mode_cfg.supervised:
+    if mode_cfg.supervised or mode_cfg.mask_loop_type:
         transforms.extend(
             [
                 data_transforms.make_atom14_positions,

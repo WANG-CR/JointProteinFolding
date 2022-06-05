@@ -176,7 +176,7 @@ class SeqResnet(nn.Module):
             no_angles:
                 Number of torsion angles to generate
         """
-        super(AngleResnet, self).__init__()
+        super(SeqResnet, self).__init__()
 
         self.c_in = c_in
         self.c_hidden = c_hidden
@@ -751,7 +751,19 @@ class StructureModule(nn.Module):
             scaled_rigids = rigids.scale_translation(self.trans_scale_factor)
 
             if not self.training or i == (self.no_blocks - 1):
-                aatype_ = aatype
+                if not self.training and self.mask_loop_type and loop_only:
+                    # [*, N]
+                    masked_seq_logits_ = masked_seq_logits.clone()
+                    masked_seq_logits_[..., -1] = -9999999 # zero out UNK.
+                    pred_aatype = torch.argmax(masked_seq_logits_, dim=-1)
+                    aatype_ = pred_aatype * loop_mask.long() + aatype * (1 - loop_mask.long())
+                    if i == (self.no_blocks - 1):
+                        print('gt', aatype[loop_mask == 1])
+                        print('pred', pred_aatype[loop_mask == 1])
+                        print(masked_seq_logits_[loop_mask == 1][0])
+                else:
+                    aatype_ = aatype
+
                 all_frames_to_global = self.torsion_angles_to_frames(
                     backb_to_global,
                     angles,
@@ -765,6 +777,7 @@ class StructureModule(nn.Module):
             else:
                 # Use dummy "all_frames_to_global" and "pred_xyz" to
                 # save time if it is not the last step during the training.
+                aatype_ = aatype
                 batch_residue_dims = unnormalized_angles.shape[:-2] # [*, N]
                 all_frames_to_global = torch.zeros(
                     *batch_residue_dims, 8, 4, 4,
@@ -788,7 +801,12 @@ class StructureModule(nn.Module):
                 "positions": pred_xyz, # [*, N, 14, 3]
             }
             if self.mask_loop_type:
-                preds.update({"masked_seq_logits": masked_seq_logits})
+                preds.update(
+                    {
+                        "masked_seq_logits": masked_seq_logits,
+                        "pred_aatype": aatype_,
+                    }
+                )
 
             outputs.append(preds)
 

@@ -6,7 +6,7 @@ module load cuda/11.4
 source activate $ENV_NAME
 
 # 1. create database
-DATABASE_DIR=$SCRATCH/biofold/database
+DATABASE_DIR=$SCRATCH/af2gen/database
 python scripts_database/create_database.py \
     $DATABASE_DIR/download \
     $DATABASE_DIR/pdb \
@@ -15,7 +15,7 @@ python scripts_database/create_database.py \
 
 # 2. split sabdab into train/valid set according to release date,
 #    and generate merged fasta files for further batch inference, and msa generation
-DATABASE_VERSION=20220319_99_True_All__4
+DATABASE_VERSION=20220603_99_True_All__4
 python scripts_database/process_dataset.py \
     $DATABASE_DIR/pdb \
     $DATABASE_DIR/fasta \

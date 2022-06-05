@@ -38,12 +38,12 @@ from openfold.utils.validation_metrics import (
     gdt_ts,
     gdt_ha,
 )
-# from scripts.zero_to_fp32 import (
-#     get_fp32_state_dict_from_zero_checkpoint
-# )
-from scripts.zero_to_fp32_issue1422 import (
+from scripts.zero_to_fp32 import (
     get_fp32_state_dict_from_zero_checkpoint
 )
+# from scripts.zero_to_fp32_issue1422 import (
+#     get_fp32_state_dict_from_zero_checkpoint
+# )
 
 from openfold.utils.logger import PerformanceLoggingCallback
 
