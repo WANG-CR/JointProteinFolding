@@ -10,8 +10,8 @@ WORK_DIR=$SCRATCH/af2gen
 # 3. Biofold
 # 3.1 Single fasta inference
 YAML_CONFIG_PRESET=gen
-VERSION=v1
-CKPT_NAME=epoch33-step16523-val_loss=0.400.ckpt
+VERSION=v2
+CKPT_NAME=epoch32-step16037-val_loss=2.379.ckpt
 python run_pretrained_biofold.py \
     $WORK_DIR/example_data/inference/7n4l.fasta \
     $WORK_DIR/output/wandb_af2gen/${YAML_CONFIG_PRESET}-${VERSION}/checkpoints/${CKPT_NAME} \
@@ -20,8 +20,8 @@ python run_pretrained_biofold.py \
     --output_dir $WORK_DIR/example_data/inference \
     --model_device cuda:0 \
     --no_recycling_iters 3 \
-    --relax false \
-    --seed 2024 \
+    --relax true \
+    --seed 2025 \
 
 python run_pretrained_biofold.py \
     $WORK_DIR/example_data/inference/3mxw.fasta \

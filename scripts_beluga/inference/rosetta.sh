@@ -10,8 +10,8 @@ WORK_DIR=$SCRATCH/af2gen
 # 2. batch inference
 
 YAML_CONFIG_PRESET=gen
-VERSION=v1
-CKPT_NAME=epoch33-step16523-val_loss=0.400.ckpt
+VERSION=v2
+CKPT_NAME=epoch32-step16037-val_loss=2.379.ckpt
 python batchrun_pretrained_biofold.py \
     $WORK_DIR/database/fasta/merged/rosetta.fasta \
     0 \
@@ -21,7 +21,7 @@ python batchrun_pretrained_biofold.py \
     --output_dir $WORK_DIR/output/rosetta_benchmark/${YAML_CONFIG_PRESET}-${VERSION} \
     --model_device cuda:0 \
     --no_recycling_iters 3 \
-    --relax false \
+    --relax true \
 
 
 ############# cat #############

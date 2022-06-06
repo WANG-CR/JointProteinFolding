@@ -444,13 +444,27 @@ def from_prediction(
         loop_index = np.zeros_like(features["aatype"])
     if "final_pred_aatype" in result:
         aatype = result["final_pred_aatype"]
-
     else:
         aatype = features["aatype"]
+    
+    # aatype = features["aatype"]
+
+    # re-compute the restype_mask in case aatype has been modified.
+    # restype_atom37_mask = np.zeros(
+    #     [21, 37], dtype=np.float32,
+    # )
+    # for restype, restype_letter in enumerate(residue_constants.restypes):
+    #     restype_name = residue_constants.restype_1to3[restype_letter]
+    #     atom_names = residue_constants.residue_atoms[restype_name]
+    #     for atom_name in atom_names:
+    #         atom_type = residue_constants.atom_order[atom_name]
+    #         restype_atom37_mask[restype, atom_type] = 1
+    # residx_atom37_mask = restype_atom37_mask[aatype]
 
     return Protein(
         aatype=aatype,
         atom_positions=result["final_atom_positions"],
+        # atom_mask=residx_atom37_mask,
         atom_mask=result["final_atom_mask"],
         residue_index=features["residue_index"] + 1,
         chain_index=chain_index,

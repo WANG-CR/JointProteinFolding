@@ -17,7 +17,7 @@ from openfold.utils.seed import seed_everything
 from openfold.utils.loss import lddt_ca
 from openfold.np import residue_constants, protein
 from openfold.model.model import AlphaFold
-from openfold.data import feature_pipeline, data_pipeline, parsers
+from openfold.data import feature_pipeline, data_pipeline, data_transforms, parsers
 from openfold.config import model_config
 
 
@@ -214,6 +214,17 @@ def main(args):
 
     # Toss out the recycling dimensions --- we don't need them anymore
     batch = tensor_tree_map(lambda x: np.array(x[..., -1].cpu()), batch)
+
+    # patch the loop design case
+    if "final_pred_aatype" in out:
+        fake_batch = {"aatype": out["final_pred_aatype"]}
+        fake_batch = data_transforms.make_atom14_masks(fake_batch)
+        out["final_atom_positions"] = atom14_to_atom37(
+            out["sm"]["positions"][-1], fake_batch
+        )
+        out["residx_atom37_to_atom14"] = fake_batch["residx_atom37_to_atom14"]
+        out["atom37_atom_exists"] = fake_batch["atom37_atom_exists"]
+        out["final_atom_mask"] = fake_batch["atom37_atom_exists"]
     out = tensor_tree_map(lambda x: np.array(x.cpu()), out)
 
     plddt = out["plddt"]
@@ -355,7 +366,8 @@ def main(args):
             )
             with open(relaxed_output_path, 'w') as f:
                 f.write(relaxed_pdb_str)
-        except:
+        except Exception as e:
+            logging.warning(e)
             logging.warning("relaxation failed...")
 
 

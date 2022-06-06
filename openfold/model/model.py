@@ -373,11 +373,13 @@ class AlphaFold(nn.Module):
             loop_only=self.globals.loop_only,
             gt_angles=gt_angles,
         )
+
         outputs["final_atom_positions"] = atom14_to_atom37(
             outputs["sm"]["positions"][-1], feats
         )
         outputs["final_atom_mask"] = feats["atom37_atom_exists"]
         outputs["final_affine_tensor"] = outputs["sm"]["frames"][-1]
+
         if "pred_aatype" in outputs["sm"]:
             outputs["final_pred_aatype"] = outputs["sm"]["pred_aatype"][-1]
         # Save embeddings for use during the next recycling iteration
