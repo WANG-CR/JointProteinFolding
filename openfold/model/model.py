@@ -192,7 +192,9 @@ class AlphaFold(nn.Module):
 
     def iteration(
         self, feats, m_1_prev, z_prev, x_prev,
-        initial_rigids=None, _recycle=True,
+        initial_rigids=None,
+        initial_seq_types=None,
+        _recycle=True,
     ):
         # Primary output dictionary
         outputs = {}
@@ -228,6 +230,7 @@ class AlphaFold(nn.Module):
             feats["residue_emb"],
             feats["loop_mask"],
             attn=attn_feat,
+            initial_seq_types=initial_seq_types,
         )
 
         # Initialize the recycling embeddings, if needs be
@@ -369,6 +372,7 @@ class AlphaFold(nn.Module):
             feats["aatype"],
             mask=feats["seq_mask"].to(dtype=s.dtype),
             initial_rigids=initial_rigids,
+            initial_seq_types=initial_seq_types,
             loop_mask=feats["loop_mask"],
             loop_only=self.globals.loop_only,
             gt_angles=gt_angles,
@@ -392,8 +396,13 @@ class AlphaFold(nn.Module):
 
         # [*, N, 37, 3]
         x_prev = outputs["final_atom_positions"]
+        
+        if "masked_seq_logits" in outputs["sm"]:
+            seq_types_prev = outputs["sm"]["masked_seq_logits"][-1]
+        else:
+            seq_types_prev = None
 
-        return outputs, m_1_prev, z_prev, x_prev
+        return outputs, m_1_prev, z_prev, x_prev, seq_types_prev
 
     def _disable_activation_checkpointing(self):
         self.evoformer.blocks_per_ckpt = None
@@ -468,6 +477,7 @@ class AlphaFold(nn.Module):
         """
         # Initialize recycling embeddings
         m_1_prev, z_prev, x_prev = None, None, None
+        seq_types_prev = None
 
         # Disable activation checkpointing for the first few recycling iters
         is_grad_enabled = torch.is_grad_enabled()
@@ -482,6 +492,7 @@ class AlphaFold(nn.Module):
             fetch_cur_batch = lambda t: t[..., cycle_no]
             feats = tensor_tree_map(fetch_cur_batch, batch)
 
+            # compute initial rigids
             if self.config.is_refine:
                 assert (
                     "pred_atom_positions" in feats and "backbone_pred_rigid_7s" in feats
@@ -524,12 +535,13 @@ class AlphaFold(nn.Module):
                         torch.clear_autocast_cache()
 
                 # Run the next iteration of the model
-                outputs, m_1_prev, z_prev, x_prev = self.iteration(
+                outputs, m_1_prev, z_prev, x_prev, seq_types_prev = self.iteration(
                     feats,
                     m_1_prev,
                     z_prev,
                     x_prev,
                     initial_rigids=initial_rigids,
+                    initial_seq_types=seq_types_prev,
                     _recycle=(num_iters > 1)
                 )
                 outputs.update(self.aux_heads(outputs))

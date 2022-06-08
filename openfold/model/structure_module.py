@@ -185,6 +185,8 @@ class SeqResnet(nn.Module):
 
         self.linear_in = Linear(self.c_in, self.c_hidden)
         self.linear_initial = Linear(self.c_in, self.c_hidden)
+        self.linear_logit = Linear(restype_num + 1, self.c_hidden)
+        self.logit_layer_norm = LayerNorm(self.c_hidden)
 
         self.layers = nn.ModuleList()
         for _ in range(self.no_blocks):
@@ -196,7 +198,10 @@ class SeqResnet(nn.Module):
         self.relu = nn.ReLU()
 
     def forward(
-        self, s: torch.Tensor, s_initial: torch.Tensor
+        self, s: torch.Tensor,
+        s_initial: torch.Tensor,
+        logit: torch.Tensor,
+        mask: torch.Tensor,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Args:
@@ -215,7 +220,11 @@ class SeqResnet(nn.Module):
         s_initial = self.linear_initial(s_initial)
         s = self.relu(s)
         s = self.linear_in(s)
-        s = s + s_initial
+
+        logit = self.linear_logit(logit)
+        logit = self.logit_layer_norm(logit)
+
+        s = s + s_initial + logit * mask
 
         for l in self.layers:
             s = l(s)
@@ -657,6 +666,12 @@ class StructureModule(nn.Module):
                 self.no_resnet_blocks,
                 restype_num + 1,
             )
+            self.seq_type_nn = nn.Sequential(
+                Linear(restype_num + 1, self.c_s, init="relu"),
+                nn.ReLU(),
+                Linear(self.c_s, self.c_s, init="final"),
+                LayerNorm(self.c_s),
+            )
 
     def forward(
         self,
@@ -665,6 +680,7 @@ class StructureModule(nn.Module):
         aatype,
         mask=None,
         initial_rigids=None,
+        initial_seq_types=None,
         loop_mask=None,
         loop_only=False,
         gt_angles=None,
@@ -708,9 +724,21 @@ class StructureModule(nn.Module):
                 fmt="quat",
             )
 
+        if initial_seq_types is None and self.mask_loop_type:
+            seq_types = torch.zeros(
+                (*s.shape[:-1], restype_num + 1),
+                dtype=s.dtype,
+                device=s.device,
+                requires_grad=self.training,
+            )
+        else:
+            seq_types = initial_seq_types
+
         outputs = []
         for i in range(self.no_blocks):
             # [*, N, C_s]
+            if self.mask_loop_type:
+                s = s + self.seq_type_nn(seq_types) * loop_mask[..., None]
             s = s + self.ipa(s, z, rigids, mask)
             s = self.ipa_dropout(s)
             s = self.layer_norm_ipa(s)
@@ -720,7 +748,7 @@ class StructureModule(nn.Module):
             bb_update_ = self.bb_update(s)
 
             if loop_only:
-                bb_update_ = bb_update_ * (loop_mask[..., None])
+                bb_update_ = bb_update_ * loop_mask[..., None]
 
             rigids = rigids.compose_q_update_vec(bb_update_)
 
@@ -746,14 +774,19 @@ class StructureModule(nn.Module):
 
             if self.mask_loop_type:
                 # [*, N, 21]
-                masked_seq_logits = self.seq_resnet(s, s_initial)
+                seq_types_update = self.seq_resnet(
+                    s, s_initial,
+                    seq_types,
+                    loop_mask[..., None],
+                )
+                seq_types = seq_types + seq_types_update
 
             scaled_rigids = rigids.scale_translation(self.trans_scale_factor)
 
             if not self.training or i == (self.no_blocks - 1):
                 if not self.training and self.mask_loop_type and loop_only:
                     # [*, N]
-                    masked_seq_logits_ = masked_seq_logits.clone()
+                    masked_seq_logits_ = seq_types.clone()
                     masked_seq_logits_[..., -1] = -9999 # zero out UNK.
                     pred_aatype = torch.argmax(masked_seq_logits_, dim=-1)
                     aatype_ = pred_aatype * loop_mask.long() + aatype * (1 - loop_mask.long())
@@ -804,7 +837,7 @@ class StructureModule(nn.Module):
             if self.mask_loop_type:
                 preds.update(
                     {
-                        "masked_seq_logits": masked_seq_logits,
+                        "masked_seq_logits": seq_types,
                         "pred_aatype": aatype_,
                     }
                 )

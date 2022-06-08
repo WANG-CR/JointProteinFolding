@@ -119,6 +119,7 @@ class InputEmbedder(nn.Module):
         emb: torch.Tensor,
         loop_mask: torch.Tensor,
         attn: Optional[torch.Tensor],
+        initial_seq_types: Optional[torch.Tensor],
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Args:
@@ -132,6 +133,8 @@ class InputEmbedder(nn.Module):
                 "residue_emb" features of shape [*, N_model, N_res, emb_dim] from pre-trained language models.
             attn:
                 "residue_attn" features of shape [*, N_res, N_res, attn_dim]
+            initial_seq_types:
+                pred sequence type for masked region of shape [*, N_res, tf_dim]
         Returns:
             msa_emb:
                 [*, N_clust, N_res, C_m] MSA embedding
@@ -143,16 +146,20 @@ class InputEmbedder(nn.Module):
         """
         # mask loop type for loop design
         if self.mask_loop_type:
-            # print('mask loop seq type')
-            # print(loop_mask.sum())
-            tf_unk = torch.zeros_like(tf)
-            tf_unk[..., -1] = 1.0
-            loop_mask_expand = loop_mask[..., None].expand_as(tf_unk)
-            tf = loop_mask_expand * tf_unk + (1 - loop_mask_expand) * tf
-            
             msa_unk = torch.zeros_like(msa)
             loop_mask_expand = loop_mask[..., None, :, None].expand_as(msa_unk)
             msa = loop_mask_expand * msa_unk + (1 - loop_mask_expand) * msa
+
+            if initial_seq_types is None:
+                seq_types = torch.zeros_like(tf[..., 1:])
+                seq_types[..., -1] = 1.0
+            else:
+                seq_types = torch.softmax(initial_seq_types, dim=-1)
+
+            tf_unk = torch.zeros_like(tf[..., :1])
+            tf_unk = torch.cat([tf_unk, seq_types], dim=-1)
+            loop_mask_expand = loop_mask[..., None].expand_as(tf_unk)
+            tf = loop_mask_expand * tf_unk + (1 - loop_mask_expand) * tf
 
         # [*, N_res, c_z]
         tf_emb_i = self.linear_tf_z_i(tf)
