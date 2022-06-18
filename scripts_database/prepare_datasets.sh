@@ -6,12 +6,13 @@ module load cuda/11.4
 source activate $ENV_NAME
 
 # 1. create database
-DATABASE_DIR=$SCRATCH/af2gen/database
+DATABASE_DIR=$SCRATCH/af2gen/sabdab
 python scripts_database/create_database.py \
     $DATABASE_DIR/download \
     $DATABASE_DIR/pdb \
     $DATABASE_DIR/fasta \
-    $DATABASE_DIR/info
+    $DATABASE_DIR/info \
+
 
 # 2. split sabdab into train/valid set according to release date,
 #    and generate merged fasta files for further batch inference, and msa generation

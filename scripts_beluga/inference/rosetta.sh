@@ -10,8 +10,8 @@ WORK_DIR=$SCRATCH/af2gen
 # 2. batch inference
 
 YAML_CONFIG_PRESET=gen
-VERSION=v2
-CKPT_NAME=epoch32-step16037-val_loss=2.379.ckpt
+VERSION=v3
+CKPT_NAME=epoch30-step15065-val_loss=2.125.ckpt
 python batchrun_pretrained_biofold.py \
     $WORK_DIR/database/fasta/merged/rosetta.fasta \
     0 \

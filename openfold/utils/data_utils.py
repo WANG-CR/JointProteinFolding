@@ -1,6 +1,7 @@
 import argparse
 import os
 import numpy as np
+import torch
 
 from openfold.data import parsers
 from openfold.np import protein, residue_constants
@@ -43,6 +44,127 @@ def _string_index_select(str, bool_index):
     return ''.join(str)
     
 
+def compute_knn(structure_1, structure_2, mask1=None, mask2=None, k=64):
+    """
+        Select knn residues from structure_2 against target structure_1
+
+        Args:
+            structure_1:
+                [*, N1, 3] (ca) coordinate tensor of antibody
+            structure_2:
+                [*, N2, 3] (ca) coordinate tensor of antigen
+            mask1:
+                [*, N1] residue masks
+            mask2:
+                [*, N2] residue masks
+        Returns:
+            A [N2] tensor contains whether a residue is selected.
+            Typically, sum([N2]) <= 64.
+            
+    """
+    assert structure_1.ndim == 2, "only a single complex can be processed"
+    if mask1 is None:
+        mask1 = torch.ones_like(structure_1[..., 0])
+    if mask2 is None:
+        mask2 = torch.ones_like(structure_2[..., 0])
+    k = min(k, int(mask2.sum().item()))
+    
+    d = structure_1[..., :, None, :] - structure_2[..., None, :, :] # [*, N1, N2, 3]
+    
+    d = d ** 2
+    d = torch.sqrt(torch.sum(d, dim=-1)) # [*, N1, N2]
+    d_inf = 1e8 * torch.ones_like(d)
+    
+    valid_pair_mask = mask1[..., :, None] * mask2[..., None, :] # [*, N1, N2]
+    d = valid_pair_mask * d + (1 - valid_pair_mask) * d_inf # [*, N1, N2]
+    
+    d_min_value, d_min_indice = torch.min(d, dim=-2) # [*, N2]
+    
+    top_k_value, top_k_indice = torch.topk(d_min_value, k, dim=-1, largest=False)
+    
+    ret = torch.zeros_like(structure_2[..., 0]).long()
+    ret[top_k_indice] = 1
+    return ret
+
+
+def compute_knn_np(structure_1, structure_2, mask1=None, mask2=None, k=64):
+    """
+        Select knn residues from structure_2 against target structure_1
+
+        Args:
+            structure_1:
+                [*, N1, 3] (ca) coordinate tensor of antibody
+            structure_2:
+                [*, N2, 3] (ca) coordinate tensor of antigen
+            mask1:
+                [*, N1] residue masks
+            mask2:
+                [*, N2] residue masks
+        Returns:
+            A [N2] tensor contains whether a residue is selected.
+            Typically, sum([N2]) <= 64.
+            
+    """
+    assert structure_1.ndim == 2, "only a single complex can be processed"
+    if mask1 is None:
+        mask1 = np.ones_like(structure_1[..., 0])
+    if mask2 is None:
+        mask2 = np.ones_like(structure_2[..., 0])
+    k = min(k, int(mask2.sum())) - 1
+    
+    d = structure_1[..., :, None, :] - structure_2[..., None, :, :] # [*, N1, N2, 3]
+    
+    d = d ** 2
+    d = np.sqrt(np.sum(d, axis=-1)) # [*, N1, N2]
+    d_inf = 1e8 * np.ones_like(d)
+    
+    valid_pair_mask = mask1[..., :, None] * mask2[..., None, :] # [*, N1, N2]
+    d = valid_pair_mask * d + (1 - valid_pair_mask) * d_inf # [*, N1, N2]
+    
+    d_min_value = np.min(d, axis=-2) # [*, N2]
+    
+    top_k_indice = np.argpartition(d_min_value, k, axis=-1)[:k + 1]
+    
+    ret = np.zeros_like(structure_2[..., 0]).astype(np.int32)
+    ret[top_k_indice] = 1
+    return ret
+
+
+def trunc_ab_ag_complex(prot: protein.Protein, k=64):
+    ca_pos = residue_constants.atom_order["CA"]
+    atom_positions = prot.atom_positions[..., ca_pos, :]
+    atom_mask = prot.atom_mask[..., ca_pos]
+
+    ab = atom_positions[prot.chain_index <= 1]
+    ag = atom_positions[prot.chain_index > 1]
+    mask_ab = atom_mask[prot.chain_index <= 1]
+    mask_ag = atom_mask[prot.chain_index > 1]
+    
+    ag_select = compute_knn_np(ab, ag, mask_ab, mask_ag, k=k)
+    filter_mask = np.zeros_like(prot.chain_index)
+    filter_mask[prot.chain_index <= 1] = 1
+    filter_mask[prot.chain_index > 1] = ag_select
+    filter_mask = filter_mask.astype(bool)
+
+    atom_positions_ = np.copy(prot.atom_positions)[filter_mask]
+    atom_mask_ = np.copy(prot.atom_mask)[filter_mask]
+    aatype_ = np.copy(prot.aatype)[filter_mask]
+    residue_index_ = np.copy(prot.residue_index)[filter_mask]
+    chain_index_ = np.copy(prot.chain_index)[filter_mask]
+    loop_index_ = np.copy(prot.loop_index)[filter_mask]
+    b_factors_ = np.copy(prot.b_factors)[filter_mask]
+    
+    return protein.Protein(
+        atom_positions=atom_positions_,
+        atom_mask=atom_mask_,
+        aatype=aatype_,
+        residue_index=residue_index_,
+        chain_index=chain_index_,
+        loop_index=loop_index_,
+        b_factors=b_factors_,
+    )
+
+
 def pdb2fasta(fname, idx, data_dir):
     basename, ext = os.path.splitext(fname)
     fpath = os.path.join(data_dir, fname)
@@ -62,6 +184,23 @@ def pdb2fasta(fname, idx, data_dir):
         raise ValueError(f'ext is invalid, should be either pdb of fasta, found {ext}')
     return ret, basename
 
+def pdb2cdrfasta(fname, idx, data_dir, cdr_idx):
+    basename, ext = os.path.splitext(fname)
+    fpath = os.path.join(data_dir, fname)
+    ret = []
+    name = ['cdrh1', 'cdrh2', 'cdrh3', 'cdrl1', 'cdrl2', 'cdrl3']
+    if ext == '.pdb':
+        with open(fpath, 'r') as f:
+            pdb_str = f.read()
+        protein_object = protein.from_pdb_string_antibody(pdb_str)
+        seq = _aatype_to_str_sequence(protein_object.aatype)
+        
+        ret.append(f">{basename}_{name[cdr_idx - 1]}")
+        ret.append(_string_index_select(seq, protein_object.loop_index==cdr_idx))
+           
+    else:
+        raise ValueError(f'ext is invalid, should be either pdb of fasta, found {ext}')
+    return ret, basename
 
 def fastas2fasta(data_dir, mode=-1):
     """merge fastas in a directory into a single fasta

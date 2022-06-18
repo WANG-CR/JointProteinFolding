@@ -245,7 +245,12 @@ def from_pdb_string_antibody(pdb_str: str, chain_id: Optional[str] = None) -> Pr
 
 
     # Chain IDs are usually characters so map these to ints.
-    unique_chain_ids = np.unique(chain_ids)
+    # We want H:0, L:1, other chains 2,3,4,...
+    # np.unique with order preserving
+    chain_ids = np.array(chain_ids)
+    _, idx = np.unique(chain_ids, return_index=True)
+    unique_chain_ids = chain_ids[np.sort(idx)]
+    
     chain_id_mapping = {cid: n for n, cid in enumerate(unique_chain_ids)}
     chain_index = np.array([chain_id_mapping[cid] for cid in chain_ids])
 
@@ -321,10 +326,11 @@ def from_proteinnet_string(proteinnet_str: str) -> Protein:
     )
 
 
-def to_pdb(prot: Protein) -> str:
+def to_pdb(prot: Protein, output_mask: Optional[np.ndarray] = None) -> str:
     """Converts a `Protein` instance to a PDB string.
     Args:
             prot: The protein to convert to PDB.
+            output_mask: The residual level mask indicating whether to keep the residual or not.
     Returns:
             PDB string.
     """
@@ -335,6 +341,8 @@ def to_pdb(prot: Protein) -> str:
     pdb_lines = []
 
     atom_mask = prot.atom_mask
+    if output_mask is not None:
+        atom_mask = atom_mask * output_mask[..., None]
     aatype = prot.aatype
     atom_positions = prot.atom_positions
     residue_index = prot.residue_index.astype(np.int32)

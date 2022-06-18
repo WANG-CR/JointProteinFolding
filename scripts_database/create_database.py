@@ -42,6 +42,8 @@ def parse_sabdab_summary(file_name):
     dict[pdb] = {col1 : value, col2: value, ...}
     """
     sabdab_dict = {}
+    possible_antigen_type = ['protein', 'peptide', 'protein | protein']
+    # possible_antigen_type = ['protein', 'peptide']
 
     with open(file_name, "r") as f:
         # first line is the header, or all the keys in our sub-dict
@@ -53,8 +55,9 @@ def parse_sabdab_summary(file_name):
             for k, v in zip(header[1:], split_line[1:]):
                 # pdb id is first, so we skip that for now
                 td[k] = v
-            # add temporary dict to sabdab dict at the pdb id
-            sabdab_dict[split_line[0]] = td
+            if td.get("antigen_type", None) in possible_antigen_type:
+                # add temporary dict to sabdab dict at the pdb id
+                sabdab_dict[split_line[0]] = td
 
     return sabdab_dict
 
@@ -128,14 +131,23 @@ def download_fasta_files(
         for _ in tqdm(as_completed(results), total=len(urls)):
             pass
         
-        
 def download_sabdab_summary_file(
     output_info_dir,
-    seqid=99,
-    paired=True,
-    nr_complex="All",
-    nr_rfactor='',
-    nr_res=4,
+    ABtype="Fv",
+    method="All",
+    species="All",
+    resolution=4,
+    rfactor='',
+    antigen="All",
+    ltype="All",
+    constantregion="All",
+    affinity="All",
+    isin_covabdab="All",
+    isin_therasabdab="All",
+    chothiapos='',
+    restype="ALA",
+    field_0="Antigens",
+    keyword_0='',
     **kwargs,
 ):
     """Find antibody structures that have been deposited in the PDB.
@@ -143,34 +155,35 @@ def download_sabdab_summary_file(
 
     Args:
         summary_file_path (str): Output directory containing a summary CSV file.
-        seqid (int, optional): Max sequence identity (%). 
-            Defaults to 99.
-        paired (bool, optional): Paired VH/VL only?. 
-            Defaults to True.
-        nr_complex (str, optional): In complex? 
-            ["All", "Bound only", "Unbound only"]. Defaults to "All".
-        nr_rfactor (str, optional): R-Factor cutoff. 
-            Defaults to ''.
-        nr_res (int, optional): Resolution cutoff. 
-            Defaults to 4.
     """
     date_string = datetime.today().strftime("%Y%m%d")
     summary_path = os.path.join(
-        output_info_dir, f"{date_string}_{seqid}_{paired}_{nr_complex}_"\
-        f"{nr_rfactor}_{nr_res}_sabdab_summary.tsv"
+        output_info_dir, f"{date_string}_{ABtype}_{resolution}_{antigen}_sabdab_summary.tsv"
     )
     if os.path.exists(summary_path):
         logging.info("sabdab summary file exists: {summary_path}")
         return summary_path
-    
+
     logging.info("start querying sabdab database...")
     base_url = "http://opig.stats.ox.ac.uk"
     search_url = os.path.join(base_url, "webapps/newsabdab/sabdab/search/")
-    params = dict(seqid=seqid,
-                  paired=paired,
-                  nr_complex=nr_complex,
-                  nr_rfactor=nr_rfactor,
-                  nr_res=nr_res)
+    params = dict(
+        ABtype=ABtype,
+        method=method,
+        species=species,
+        resolution=resolution,
+        rfactor=rfactor,
+        antigen=antigen,
+        ltype=ltype,
+        constantregion=constantregion,
+        affinity=affinity,
+        isin_covabdab=isin_covabdab,
+        isin_therasabdab=isin_therasabdab,
+        chothiapos=chothiapos,
+        restype=restype,
+        field_0=field_0,
+        keyword_0=keyword_0,
+    )
     query = requests.get(search_url, params=params)
     html = BeautifulSoup(query.content, "html.parser")
     summary_file_url = base_url + html.find(
@@ -265,9 +278,12 @@ def truncate_antibody_pdb(
 
     # Get the hchain and lchain data from the SAbDab summary file, if given
     hchain_text, lchain_text = '', ''
+    antigen_text = ''
+    antigen_chain = 'NA'
     if sabdab_summary_file is not None:
         hchain = sabdab_summary_file[pdb_id]["Hchain"] # usually a uppercase letter
         lchain = sabdab_summary_file[pdb_id]["Lchain"]
+        antigen_chain = sabdab_summary_file[pdb_id].get("antigen_chain", 'NA')
     else:
         hchain, lchain = _get_HL_chains(pdb_path)
 
@@ -282,7 +298,29 @@ def truncate_antibody_pdb(
         logging.warning(f"one chain of {pdb_id} is NA, H: {hchain}, L: {lchain}, removing...")
         os.remove(pdb_path)
         return
-            
+    
+    if antigen_chain == 'NA':
+        warn_pdbs.append(pdb_id)
+        logging.warning(f"missing antigen chain, removing...")
+        os.remove(pdb_path)
+        return
+
+    antigen_chain = antigen_chain.split('|')
+    antigen_chain = [c.strip() for c in antigen_chain]
+    new_antigen_chain = ['A', 'B']
+    for idx_, antigen_chain_ in enumerate(antigen_chain):
+        antigen_text += truncate_chain(
+            pdb_text, antigen_chain_, 9999, new_antigen_chain[idx_]
+        )
+    if len(antigen_text) == 0:
+        warn_pdbs.append(pdb_id)
+        logging.warning(
+            f"could not find antigen chain for {pdb_id}!\n"
+            "It was not reported to be NA, so the file may have been altered!"
+        )
+        os.remove(pdb_path)
+        return
+
     hchain_text = truncate_chain(pdb_text, hchain, 112, 'H')
     if len(hchain_text) == 0:
         warn_pdbs.append(pdb_id)
@@ -305,7 +343,7 @@ def truncate_antibody_pdb(
 
     # write new file to avoid bugs from multiple truncations
     with open(trunc_pdb_path, 'w') as f:
-        f.write(hchain_text + lchain_text)
+        f.write(hchain_text + lchain_text + antigen_text)
 
     # remove old file
     os.remove(pdb_path)
@@ -369,12 +407,39 @@ def fasta_from_truncated_pdbs(
             with open(trunc_fasta_path, "w") as f:
                 f.write('\n'.join(ret))
 
+def cdrfasta_from_truncated_pdbs(
+    data_dir,
+    output_dir,
+    cdr_idx,
+    save_single=True,
+    max_workers=16,
+):
+    job_args = [x for x in os.listdir(data_dir) if x.endswith(".pdb")]
+    job_args = zip(job_args, list(range(len(job_args))))
+    name = ['cdrh1', 'cdrh2', 'cdrh3', 'cdrl1', 'cdrl2', 'cdrl3']
+    
+    with multiprocessing.Pool(max_workers) as p:
+        func = partial(data_utils.pdb2cdrfasta, data_dir=data_dir, cdr_idx=cdr_idx)
+        if save_single:
+            fastas = []
+            for (ret, basename) in p.starmap(func, job_args):
+                fastas.extend(ret)
+            trunc_fasta_path = os.path.join(output_dir, name[cdr_idx - 1] + ".fasta")
+            with open(trunc_fasta_path, "w") as f:
+                f.write('\n'.join(fastas))
+        else:
+            for (ret, basename) in p.starmap(func, job_args):
+                trunc_fasta_path = os.path.join(output_dir, f"{basename}_{name[cdr_idx - 1]}.fasta")
+                with open(trunc_fasta_path, "w") as f:
+                    f.write('\n'.join(ret))
+
 
 def dataset_gen(
     pdb_ids,
     download_dir,
     output_pdb_dir,
     output_fasta_dir,
+    output_cdr_fasta_dir=None,
     sabdab_summary_path=None,
     ignore_same_VL_VH_chains=True,
 ):
@@ -410,81 +475,61 @@ def dataset_gen(
         sabdab_summary_path=sabdab_summary_path,
         ignore_same_VL_VH_chains=ignore_same_VL_VH_chains,
     )
-    # 4. get trucated fastas from truncated pdbs
-    fasta_from_truncated_pdbs(
-        data_dir=output_pdb_dir,
-        output_dir=output_fasta_dir,
-    )
+    
+    # 4. get cdr fasta
+    if output_cdr_fasta_dir is not None:
+        for cdr_idx in range(1, 6 + 1):
+            cdrfasta_from_truncated_pdbs(
+                data_dir=output_pdb_dir,
+                output_dir=output_cdr_fasta_dir,
+                cdr_idx=cdr_idx,
+            )
+    # 5. truncate antigen
+    # we do it on the fly
+    
+    # 6. get trucated fastas from truncated pdbs
+    # we do not need it as we will provide the framework structure during inference
+    # fasta_from_truncated_pdbs(
+    #     data_dir=output_pdb_dir,
+    #     output_dir=output_fasta_dir,
+    # )
 
 
 def main(args):
 
     # 1. make dir
     os.makedirs(args.output_info_dir, exist_ok=True)
+      
+    # 3. fetch summary file if not exists
+    summary_path = download_sabdab_summary_file(**vars(args))
+    # *_sabdab_summary.tsv
+    summary_prefix, _ = os.path.splitext(os.path.basename(summary_path))
+    summary_prefix = '_'.join(summary_prefix.split('_')[:-2])
     
-    # 2. get test pdb ids
-    rosetta_pdb_ids = data_utils.ROSETTA_ANTIBODY_BENCHMARK
-    rosetta_pdb_ids = [pdb_id.lower() for pdb_id in rosetta_pdb_ids]
-    therapeutics_pdb_ids = data_utils.THERAPEUTICS_BENCHMARK
-    therapeutics_pdb_ids = [pdb_id.lower() for pdb_id in therapeutics_pdb_ids]
-    test_pdb_ids = set(rosetta_pdb_ids + therapeutics_pdb_ids)
+    summary_df = pd.read_csv(summary_path, sep='\t')
     
-    if args.sabdab: 
-        # 3. fetch summary file if not exists
-        summary_path = download_sabdab_summary_file(**vars(args))
-        # *_sabdab_summary.tsv
-        summary_prefix, _ = os.path.splitext(os.path.basename(summary_path))
-        summary_prefix = '_'.join(summary_prefix.split('_')[:-2])
-        
-        summary_df = pd.read_csv(summary_path, sep='\t')
-        all_pdbs = set(summary_df['pdb'].unique())
+    is_protein = summary_df['antigen_type'].isin(['protein', 'peptide', 'protein | protein'])
+    summary_df = summary_df[is_protein]
+    # only protein or peptide antigen is accepted
+    sabdab_pdb_ids = set(summary_df['pdb'].unique())
+    logging.info(f"prefiltering {len(sabdab_pdb_ids)} pdbs")
 
-        # 4. remove PDB's that appear in the test set
-        sabdab_pdb_ids = all_pdbs - test_pdb_ids
-        
-        # 5. gen sabdab database
-        logging.info(f"generating sabdab database with prefix: {summary_prefix}...")
-        sabdab_download_dir = os.path.join(args.download_dir, f"{summary_prefix}_sabdab")
-        sabdab_pdb_dir = os.path.join(args.output_pdb_dir, f"{summary_prefix}_sabdab")
-        sabdab_fasta_dir = os.path.join(args.output_fasta_dir, f"{summary_prefix}_sabdab")
-        dataset_gen(
-            pdb_ids=sabdab_pdb_ids,
-            download_dir=sabdab_download_dir,
-            output_pdb_dir=sabdab_pdb_dir,
-            output_fasta_dir=sabdab_fasta_dir,
-            sabdab_summary_path=summary_path,
-            ignore_same_VL_VH_chains=args.paired,
-        )
+    # 5. gen sabdab database
+    logging.info(f"generating sabdab database with prefix: {summary_prefix}...")
+    sabdab_download_dir = os.path.join(args.download_dir, f"{summary_prefix}_sabdab")
+    sabdab_pdb_dir = os.path.join(args.output_pdb_dir, f"{summary_prefix}_sabdab")
+    sabdab_fasta_dir = os.path.join(args.output_fasta_dir, f"{summary_prefix}_sabdab")
+    output_cdr_fasta_dir = os.path.join(args.output_fasta_dir, f"{summary_prefix}_cdr")
+    dataset_gen(
+        pdb_ids=sabdab_pdb_ids,
+        download_dir=sabdab_download_dir,
+        output_pdb_dir=sabdab_pdb_dir,
+        output_fasta_dir=sabdab_fasta_dir,
+        output_cdr_fasta_dir=output_cdr_fasta_dir,
+        sabdab_summary_path=summary_path,
+        ignore_same_VL_VH_chains=True,
+    )
  
-    # 6. gen rosetta_benchmark
-    if args.rosetta:
-        logging.info("generating rosetta_benchmark database...")
-        rosetta_download_dir = os.path.join(args.download_dir, "rosetta")
-        rosetta_pdb_dir = os.path.join(args.output_pdb_dir, "rosetta")
-        rosetta_fasta_dir = os.path.join(args.output_fasta_dir, "rosetta")
-        dataset_gen(
-            pdb_ids=rosetta_pdb_ids,
-            download_dir=rosetta_download_dir,
-            output_pdb_dir=rosetta_pdb_dir,
-            output_fasta_dir=rosetta_fasta_dir,
-            sabdab_summary_path=None,
-            ignore_same_VL_VH_chains=args.paired,
-        )
-    
-    # 7. gen therapeutics
-    if args.therapeutics:
-        logging.info("generating therapeutics database...")
-        therapeutics_download_dir = os.path.join(args.download_dir, "therapeutics")
-        therapeutics_pdb_dir = os.path.join(args.output_pdb_dir, "therapeutics")
-        therapeutics_fasta_dir = os.path.join(args.output_fasta_dir, "therapeutics")
-        dataset_gen(
-            pdb_ids=therapeutics_pdb_ids,
-            download_dir=therapeutics_download_dir,
-            output_pdb_dir=therapeutics_pdb_dir,
-            output_fasta_dir=therapeutics_fasta_dir,
-            sabdab_summary_path=None,
-            ignore_same_VL_VH_chains=args.paired,
-        )
     # 8. remove the download file
     if os.path.exists(args.download_dir):
         try:
@@ -524,35 +569,7 @@ if __name__ == "__main__":
         help="Path to a directory containing information about the database, e.g., summary file"
     )
     parser.add_argument(
-        '--sabdab', type=bool_type, default=True,
-        help='whether to generate sabdab or not'
-    )
-    parser.add_argument(
-        '--rosetta', type=bool_type, default=True,
-        help='whether to generate rosetta or not'
-    )
-    parser.add_argument(
-        '--therapeutics', type=bool_type, default=True,
-        help='whether to generate therapeutics or not'
-    )        
-    parser.add_argument(
-        "--seqid", type=int, default=99,
-        help="Max sequence identity (%)."
-    )
-    parser.add_argument(
-        '--paired', type=bool_type, default=True,
-        help='Paired VH/VL only?'
-    )
-    parser.add_argument(
-        '--nr_complex', type=str, default='All',
-        help='In complex? "All", "Bound only" or "Unbound only"'
-    )
-    parser.add_argument(
-        '--nr_rfactor', type=str, default='',
-        help='R-Factor cutoff'
-    )
-    parser.add_argument(
-        '--nr_res', type=int, default=4,
+        '--resolution', type=int, default=4,
         help='Resolution cutoff'
     )
     parser.add_argument(
