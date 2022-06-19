@@ -1,12 +1,15 @@
 import argparse
+import imp
 import os
 import sys
 import logging
 logging.basicConfig(level=logging.INFO)
 import shutil
+import random
 import numpy as np
 import pandas as pd
 from datetime import datetime
+from collections import defaultdict
 
 from openfold.utils import data_utils
 
@@ -80,17 +83,19 @@ def get_split_data(pdb_dir, summary_path, train_ratio=0.9):
 def copy_pdb_to_new_dir(
     pdb_id,
     old_pdb_dir,
-    old_fasta_dir,
     new_pdb_dir,
-    new_fasta_dir,
+    old_fasta_dir=None,
+    new_fasta_dir=None,
 ):
     """copy pdb and fasta into a new directory"""
     old_pdb_path = os.path.join(old_pdb_dir, pdb_id + '.pdb')
     new_pdb_path = os.path.join(new_pdb_dir, pdb_id + '.pdb')
-    old_fasta_path = os.path.join(old_fasta_dir, pdb_id + '.fasta')
-    new_fasta_path = os.path.join(new_fasta_dir, pdb_id + '.fasta')
     shutil.copy2(old_pdb_path, new_pdb_path)
-    shutil.copy2(old_fasta_path, new_fasta_path)
+    
+    if old_fasta_dir is not None and new_fasta_dir is not None:
+        old_fasta_path = os.path.join(old_fasta_dir, pdb_id + '.fasta')
+        new_fasta_path = os.path.join(new_fasta_dir, pdb_id + '.fasta')
+        shutil.copy2(old_fasta_path, new_fasta_path)
 
 
 def merge_fasta(fasta_dir, output_path, mode):
@@ -99,63 +104,94 @@ def merge_fasta(fasta_dir, output_path, mode):
             
     with open(output_path, "w") as fp:
         fp.write('\n'.join(fastas))
+
+def split_by_cluster(pdb_dir, cluster_res, train_ratio=0.8, valid_ratio=0.1, seed=2022):
+    assert train_ratio + valid_ratio < 1
+    test_ratio = 1 - train_ratio - valid_ratio
+    random.seed(seed)
+
+    pdb_ids = [x[:4] for x in os.listdir(pdb_dir) if x.endswith(".pdb")]
+    
+    cluster_dict = defaultdict(list)
+    with open(cluster_res, 'r') as f:
+        for line in f:
+            k, v = line.strip().split('\t')
+            k = k[:4]
+            v = v[:4]
+            if v not in pdb_ids:
+                logging.warning(f"pair {k}:{v} not found in database")
+                continue
+            cluster_dict[k].append(v)
+    
+    cluster_rep = sorted(list(cluster_dict.keys()))
+    random.shuffle(cluster_rep)
+    len_cluster = len(cluster_rep)
+    
+    train_rep = cluster_rep[:int(len_cluster * train_ratio)]
+    valid_rep  = cluster_rep[int(len_cluster * train_ratio):int(len_cluster * (train_ratio + valid_ratio))]
+    test_rep = cluster_rep[int(len_cluster * (train_ratio + valid_ratio)):]
+    logging.info(
+        f"get {len_cluster} cluster representatives\n"
+        f"get {len(train_rep)} train cluster representatives\n"
+        f"get {len(valid_rep)} valid cluster representatives\n"
+        f"get {len(test_rep)} test cluster representatives\n"
+    )
+    train_pdbs, valid_pdbs, test_pdbs = [], [], []
+    for pdb_id in train_rep:
+        train_pdbs.extend(cluster_dict[pdb_id])
+    for pdb_id in valid_rep:
+        valid_pdbs.extend(cluster_dict[pdb_id])
+    for pdb_id in test_rep:
+        test_pdbs.extend(cluster_dict[pdb_id])
+    logging.info(
+        f"get {len(train_pdbs)} train pdbs\n"
+        f"get {len(valid_pdbs)} valid pdbs\n"
+        f"get {len(test_pdbs)} test pdbs\n"
+    )
+    
+    return train_pdbs, valid_pdbs, test_pdbs
         
+
 
 def main(args):
 
     # 1. split train/valid data, and prepare directory
     logging.info(f"spliting the sabdab database with version: {args.summary_prefix}")
     summary_path = os.path.join(args.info_dir, args.summary_prefix + "_sabdab_summary.tsv")
+
     old_pdb_dir = os.path.join(args.pdb_dir, args.summary_prefix + "_sabdab")
-    old_fasta_dir = os.path.join(args.fasta_dir, args.summary_prefix + "_sabdab")
-    
-    train_pdb_dir = os.path.join(args.pdb_dir, args.summary_prefix + "_train")
-    train_fasta_dir = os.path.join(args.fasta_dir, args.summary_prefix + "_train")
-    valid_pdb_dir = os.path.join(args.pdb_dir, args.summary_prefix + "_valid")
-    valid_fasta_dir = os.path.join(args.fasta_dir, args.summary_prefix + "_valid")
-    for dir_ in [train_pdb_dir, train_fasta_dir, valid_pdb_dir, valid_fasta_dir]:
+    all_cdr_names = ['cdrh1', 'cdrh2', 'cdrh3', 'cdrl1', 'cdrl2', 'cdrl3']
+    cdr_name = all_cdr_names[args.cdr_idx - 1]
+    train_pdb_dir = os.path.join(args.pdb_dir, args.summary_prefix + f"_{cdr_name}_train")
+    valid_pdb_dir = os.path.join(args.pdb_dir, args.summary_prefix + f"_{cdr_name}_valid")
+    test_pdb_dir = os.path.join(args.pdb_dir, args.summary_prefix + f"_{cdr_name}_test")
+
+    for dir_ in [train_pdb_dir, valid_pdb_dir, test_pdb_dir]:
         os.makedirs(dir_, exist_ok=True)
-    train_pdbs, valid_pdbs = get_split_data(old_pdb_dir, summary_path, args.train_ratio)
+    
+    train_pdbs, valid_pdbs, test_pdbs = split_by_cluster(
+        old_pdb_dir,
+        args.cluster_res,
+        args.train_ratio,
+        args.valid_ratio,
+        args.seed,
+    )
     
     # 2. copy data
-    logging.info("copying pdbs and fastas...")
+    logging.info("copying pdbs...")
     for pdb in train_pdbs:
         copy_pdb_to_new_dir(
-            pdb, old_pdb_dir, old_fasta_dir, train_pdb_dir, train_fasta_dir
+            pdb, old_pdb_dir, train_pdb_dir
         )
     for pdb in valid_pdbs:
         copy_pdb_to_new_dir(
-            pdb, old_pdb_dir, old_fasta_dir, valid_pdb_dir, valid_fasta_dir
+            pdb, old_pdb_dir, valid_pdb_dir
         )
-    
-    # 3. merge train/valid fastas into the info directory.
-    merged_fasta_dir = os.path.join(args.fasta_dir, "merged")
-    os.makedirs(merged_fasta_dir, exist_ok=True)
-    
-    # 3.1 merge train/valid
-    logging.info("merging sabdab fastas...")
-    train_merged_fasta_path = os.path.join(merged_fasta_dir, args.summary_prefix + "_train.fasta")
-    valid_merged_fasta_path = os.path.join(merged_fasta_dir, args.summary_prefix + "_valid.fasta")
-    # deepab's format, used for torchfold.
-    merge_fasta(fasta_dir=train_fasta_dir, output_path=train_merged_fasta_path, mode=-1)
-    merge_fasta(fasta_dir=valid_fasta_dir, output_path=valid_merged_fasta_path, mode=-1)
-    
-    if args.merge_rosetta:
-        logging.info("merging rosetta fastas...")
-        rosetta_merged_fasta_path = os.path.join(merged_fasta_dir, "rosetta.fasta")
-        rosetta_cat30x_merged_fasta_path = os.path.join(merged_fasta_dir, "rosetta_cat30x.fasta")
-        rosetta_fasta_dir = os.path.join(args.fasta_dir, "rosetta")
-        merge_fasta(fasta_dir=rosetta_fasta_dir, output_path=rosetta_merged_fasta_path, mode=-1)
-        merge_fasta(fasta_dir=rosetta_fasta_dir, output_path=rosetta_cat30x_merged_fasta_path, mode=30)
-        
-    if args.merge_therapeutics:
-        logging.info("merging therapeutics fastas...")
-        therapeutics_merged_fasta_path = os.path.join(merged_fasta_dir, "therapeutics.fasta")
-        therapeutics_cat30x_merged_fasta_path = os.path.join(merged_fasta_dir, "therapeutics_cat30x.fasta")
-        therapeutics_fasta_dir = os.path.join(args.fasta_dir, "therapeutics")
-        merge_fasta(fasta_dir=therapeutics_fasta_dir, output_path=therapeutics_merged_fasta_path, mode=-1)
-        merge_fasta(fasta_dir=therapeutics_fasta_dir, output_path=therapeutics_cat30x_merged_fasta_path, mode=30)
-        
+    for pdb in test_pdbs:
+        copy_pdb_to_new_dir(
+            pdb, old_pdb_dir, test_pdb_dir
+        )
+
 
 def bool_type(bool_str: str):
     bool_str_lower = bool_str.lower()
@@ -186,17 +222,26 @@ if __name__ == "__main__":
         help="prefix of the sabdab summary file, which uniquely determines the version of the database"
     )
     parser.add_argument(
-        "--train_ratio", type=float, default=0.9,
+        "--cdr_idx", type=int,
+        help="which cdr to process"
+    )
+    parser.add_argument(
+        "--cluster_res", type=str,
+        help="path of the clustering results"
+    )
+    parser.add_argument(
+        "--train_ratio", type=float, default=0.8,
         help="the proportion of the train data"
     )
     parser.add_argument(
-        '--merge_rosetta', type=bool_type, default=False,
-        help='whether to merge rosetta fastas'
+        "--valid_ratio", type=float, default=0.1,
+        help="the proportion of the valid data"
     )
     parser.add_argument(
-        '--merge_therapeutics', type=bool_type, default=False,
-        help='whether to merge therapeutics fastas'
+        "--seed", type=int, default=2022,
+        help="random shuffle seed"
     )
+
     args = parser.parse_args()
 
     main(args)

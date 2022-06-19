@@ -459,7 +459,7 @@ def dataset_gen(
 
     # 1. mkdirs
     for dir_ in [
-        download_dir, output_pdb_dir, output_fasta_dir
+        download_dir, output_pdb_dir, output_cdr_fasta_dir
     ]:
         os.makedirs(dir_, exist_ok=True)
 
