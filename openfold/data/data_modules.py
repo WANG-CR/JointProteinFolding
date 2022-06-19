@@ -154,7 +154,11 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
                 res_index = fields.index("resolution")
                 for values in reader:
                     if pdb_index < len(values) and res_index < len(values):
-                        self.resolution[values[pdb_index]] = float(values[res_index])
+                        try:
+                            self.resolution[values[pdb_index]] = float(values[res_index])
+                        except:
+                            self.resolution[values[pdb_index]] = 0.0
+                            logging.warning(f"fail to parse resolution of {values[pdb_index]}")
 
     def _parse_mmcif(self, path, file_id, chain_id, alignment_dir, embedding_dir, _alignment_index):
         with open(path, 'r') as f:

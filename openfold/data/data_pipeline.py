@@ -28,6 +28,7 @@ from openfold.data import templates, parsers, mmcif_parsing
 from openfold.data.tools import jackhmmer, hhblits, hhsearch
 from openfold.data.tools.utils import to_date 
 from openfold.np import residue_constants, protein
+from openfold.utils import data_utils
 
 
 FeatureDict = Mapping[str, np.ndarray]
@@ -812,6 +813,8 @@ class DataPipeline:
 
         if is_antibody:
             protein_object = protein.from_pdb_string_antibody(pdb_str, chain_id)
+            protein_object = data_utils.trunc_ab_ag_complex(protein_object, k=64)
+            
         else:
             protein_object = protein.from_pdb_string(pdb_str, chain_id)
 
