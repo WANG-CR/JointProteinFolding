@@ -59,7 +59,7 @@ def make_seq_mask(protein):
     protein["seq_mask"] = torch.ones(
         protein["aatype"].shape, dtype=torch.float32
     )
-    protein["loop_mask"] = (protein["loop_index"] == 3).to(torch.float32)
+    protein["loop_mask"] = (protein["loop_index"] != 0).to(torch.float32)
     return protein
 
 
