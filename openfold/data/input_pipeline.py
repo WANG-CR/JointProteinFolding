@@ -27,7 +27,7 @@ def nonensembled_transform_fns(common_cfg, mode_cfg):
         data_transforms.correct_msa_restypes,
         data_transforms.squeeze_features,
         data_transforms.randomly_replace_msa_with_unknown(0.0),
-        data_transforms.make_seq_mask,
+        data_transforms.make_seq_mask(common_cfg.loop_type),
         data_transforms.make_msa_mask,
         data_transforms.make_hhblits_profile,
     ]
