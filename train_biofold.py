@@ -148,9 +148,9 @@ class OpenFoldWrapper(pl.LightningModule):
     ):
         metrics = {}
         
-        gt_coords = batch["all_atom_positions"] # [*, N, 37, 3]
-        pred_coords = outputs["final_atom_positions"] # [*, N, 37, 3]
-        all_atom_mask = batch["all_atom_mask"] # [*, N, 37]
+        gt_coords = batch["all_atom_positions"].float() # [*, N, 37, 3]
+        pred_coords = outputs["final_atom_positions"].float() # [*, N, 37, 3]
+        all_atom_mask = batch["all_atom_mask"].float() # [*, N, 37]
         # This is super janky for superimposition. Fix later
         gt_coords_masked = gt_coords * all_atom_mask[..., None] # [*, N, 37, 3]
         pred_coords_masked = pred_coords * all_atom_mask[..., None] # [*, N, 37, 3]
@@ -387,6 +387,10 @@ if __name__ == "__main__":
             "Cutoff for all templates. In training mode, templates are also "
             "filtered by the release date of the target"
         )
+    )
+    parser.add_argument(
+        "--trunc_antigen", type=bool_type, default=False,
+        help="Whether to trunc the antigen during pdb processing, set to False of no antigen is provided"
     )
     parser.add_argument(
         "--sabdab_summary_file", type=str,

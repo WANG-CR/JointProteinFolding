@@ -790,10 +790,10 @@ class StructureModule(nn.Module):
                     masked_seq_logits_[..., -1] = -9999 # zero out UNK.
                     pred_aatype = torch.argmax(masked_seq_logits_, dim=-1)
                     aatype_ = pred_aatype * loop_mask.long() + aatype * (1 - loop_mask.long())
-                    if i == (self.no_blocks - 1):
-                        print('gt', aatype[loop_mask == 1])
-                        print('pred', pred_aatype[loop_mask == 1])
-                        print(masked_seq_logits_[loop_mask == 1][0])
+                    # if i == (self.no_blocks - 1):
+                    #     print('gt', aatype[loop_mask == 1])
+                    #     print('pred', pred_aatype[loop_mask == 1])
+                    #     print(masked_seq_logits_[loop_mask == 1][0])
                     
                 else:
                     aatype_ = aatype

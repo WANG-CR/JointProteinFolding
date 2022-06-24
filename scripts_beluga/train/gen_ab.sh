@@ -7,8 +7,8 @@
 #SBATCH --ntasks-per-node=4
 #SBATCH --time=24:00:00
 #SBATCH --exclusive
-#SBATCH --output=/home/shichenc/scratch/af2gen/output/slurm_log/gen_abag_v3.out
-#SBATCH --error=/home/shichenc/scratch/af2gen/output/slurm_log/gen_abag_v3.err
+#SBATCH --output=/home/shichenc/scratch/af2gen/output/slurm_log/gen_ab_v1.out
+#SBATCH --error=/home/shichenc/scratch/af2gen/output/slurm_log/gen_ab_v1.err
 #SBATCH --qos=unkillable
 
 ENV_NAME=biofold
@@ -19,7 +19,7 @@ TRAIN_DIR=$WORK_DIR/sabdab/pdb/20220618_Fv_4_All_cdrh3_train
 VALID_DIR=$WORK_DIR/sabdab/pdb/20220618_Fv_4_All_cdrh3_valid
 OUTPUT_DIR=$WORK_DIR/output
 
-YAML_CONFIG_PRESET=gen_abag
+YAML_CONFIG_PRESET=gen_ab
 srun python train_biofold.py $TRAIN_DIR/ $TRAIN_DIR/ $TRAIN_DIR/ \
     $OUTPUT_DIR/ \
     2021-12-31 \
@@ -30,7 +30,8 @@ srun python train_biofold.py $TRAIN_DIR/ $TRAIN_DIR/ $TRAIN_DIR/ \
     --precision 16 --gpus 4 --log_every_n_steps 50 \
     --wandb true \
     --wandb_entity chenceshi \
-    --wandb_version v3 \
+    --wandb_version v1 \
     --wandb_project wandb_af2gen \
     --deepspeed_config_path deepspeed_config_scc.json \
     --sabdab_summary_file $WORK_DIR/sabdab/info/20220618_Fv_4_All_sabdab_summary.tsv \
+    --trunc_antigen false \

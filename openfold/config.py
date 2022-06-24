@@ -263,6 +263,7 @@ config = mlc.ConfigDict(
                 "unsupervised_features": [
                     "aatype",
                     "residue_index",
+                    "chain_index",
                     "msa",
                     "num_alignments",
                     "seq_length",
@@ -275,6 +276,7 @@ config = mlc.ConfigDict(
                 ],
                 "use_templates": templates_enabled,
                 "use_template_torsion_angles": embed_template_torsion_angles,
+                "loop_type": None,
             },
             "supervised": {
                 "clamp_prob": 0.9,

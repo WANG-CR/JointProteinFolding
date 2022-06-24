@@ -11,7 +11,7 @@ model:
 
 data:
   train:
-    crop_size: 320
+    crop_size: 256
   common:
     loop_type: CDR
 

@@ -796,7 +796,7 @@ class DataPipeline:
         self,
         pdb_path: str,
         alignment_dir: str,
-        is_distillation: bool = True,
+        is_distillation: bool = False,
         chain_id: Optional[str] = None,
         embedding_dir: Optional[str] = None,
         attn_path_H: Optional[str] = None,
@@ -804,6 +804,7 @@ class DataPipeline:
         resolution: Optional[float] = None,
         _alignment_index: Optional[str] = None,
         is_antibody: bool = True,
+        trunc_antigen: bool = True,
     ) -> FeatureDict:
         """
             Assembles features for a protein in a PDB file.
@@ -813,7 +814,10 @@ class DataPipeline:
 
         if is_antibody:
             protein_object = protein.from_pdb_string_antibody(pdb_str, chain_id)
-            protein_object = data_utils.trunc_ab_ag_complex(protein_object, k=64)
+            if trunc_antigen:
+                protein_object = data_utils.trunc_ab_ag_complex(protein_object, k=64)
+            else:
+                protein_object = data_utils.filter_ab_from_complex(protein_object)
             
         else:
             protein_object = protein.from_pdb_string(pdb_str, chain_id)

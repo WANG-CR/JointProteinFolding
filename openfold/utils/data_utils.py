@@ -165,6 +165,30 @@ def trunc_ab_ag_complex(prot: protein.Protein, k=64):
     )
 
 
+def filter_ab_from_complex(prot: protein.Protein):
+    filter_mask = np.zeros_like(prot.chain_index)
+    filter_mask[prot.chain_index <= 1] = 1
+    filter_mask = filter_mask.astype(bool)
+
+    atom_positions_ = np.copy(prot.atom_positions)[filter_mask]
+    atom_mask_ = np.copy(prot.atom_mask)[filter_mask]
+    aatype_ = np.copy(prot.aatype)[filter_mask]
+    residue_index_ = np.copy(prot.residue_index)[filter_mask]
+    chain_index_ = np.copy(prot.chain_index)[filter_mask]
+    loop_index_ = np.copy(prot.loop_index)[filter_mask]
+    b_factors_ = np.copy(prot.b_factors)[filter_mask]
+    
+    return protein.Protein(
+        atom_positions=atom_positions_,
+        atom_mask=atom_mask_,
+        aatype=aatype_,
+        residue_index=residue_index_,
+        chain_index=chain_index_,
+        loop_index=loop_index_,
+        b_factors=b_factors_,
+    )
+
+
 def pdb2fasta(fname, idx, data_dir):
     basename, ext = os.path.splitext(fname)
     fpath = os.path.join(data_dir, fname)

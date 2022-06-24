@@ -43,6 +43,7 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
         mapping_path: Optional[str] = None,
         mode: str = "train", 
         _output_raw: bool = False,
+        trunc_antigen: bool = False,
         sabdab_summary_file: Optional[str] = None,
         _alignment_index: Optional[Any] = None,
     ):
@@ -97,6 +98,7 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
         self.treat_pdb_as_distillation = treat_pdb_as_distillation
         self.mode = mode
         self._output_raw = _output_raw
+        self.trunc_antigen = trunc_antigen
         self._alignment_index = _alignment_index
 
         valid_modes = ["train", "eval", "predict"]
@@ -250,6 +252,7 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
                     attn_path_L=attn_path_L,
                     resolution=resolution,
                     _alignment_index=_alignment_index,
+                    trunc_antigen=self.trunc_antigen,
                 )
             else:
                 raise ValueError("Invalid file type")
@@ -268,6 +271,7 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
                     attn_path_H=attn_path_H,
                     attn_path_L=attn_path_L,
                     _alignment_index=_alignment_index,
+                    trunc_antigen=self.trunc_antigen,
                 )
                 data["pred_atom_positions"] = pred_data["all_atom_positions"]
         else:
@@ -600,6 +604,7 @@ class OpenFoldDataModule(pl.LightningDataModule):
         batch_seed: Optional[int] = None,
         train_epoch_len: Optional[int] = None,
         sabdab_summary_file: Optional[str] = None,
+        trunc_antigen: bool = False,
         _alignment_index_path: Optional[str] = None,
         **kwargs
     ):
@@ -640,6 +645,7 @@ class OpenFoldDataModule(pl.LightningDataModule):
         self.batch_seed = batch_seed
         self.train_epoch_len = train_epoch_len
         self.sabdab_summary_file = sabdab_summary_file
+        self.trunc_antigen = trunc_antigen
 
         if(self.train_data_dir is None and self.predict_data_dir is None):
             raise ValueError(
@@ -696,6 +702,7 @@ class OpenFoldDataModule(pl.LightningDataModule):
                 treat_pdb_as_distillation=False,
                 mode="train",
                 _output_raw=True,
+                trunc_antigen=self.trunc_antigen,
                 sabdab_summary_file=self.sabdab_summary_file,
                 _alignment_index=self._alignment_index,
             )
@@ -712,6 +719,7 @@ class OpenFoldDataModule(pl.LightningDataModule):
                     treat_pdb_as_distillation=True,
                     mode="train",
                     _output_raw=True,
+                    trunc_antigen=self.trunc_antigen,
                     sabdab_summary_file=self.sabdab_summary_file,
                 )
 
@@ -751,6 +759,7 @@ class OpenFoldDataModule(pl.LightningDataModule):
                     max_template_hits=self.config.eval.max_template_hits,
                     mode="eval",
                     _output_raw=True,
+                    trunc_antigen=self.trunc_antigen,
                     sabdab_summary_file=self.sabdab_summary_file,
                 )
             else:
@@ -764,6 +773,7 @@ class OpenFoldDataModule(pl.LightningDataModule):
                 mapping_path=None,
                 max_template_hits=self.config.predict.max_template_hits,
                 mode="predict",
+                trunc_antigen=self.trunc_antigen,
             )
 
     def _gen_dataloader(self, stage):

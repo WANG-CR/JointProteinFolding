@@ -23,6 +23,30 @@ python batchrun_pretrained_biofold.py \
     --no_recycling_iters 3 \
     --relax true \
 
+YAML_CONFIG_PRESET=gen_abag
+VERSION=v4
+CKPT_NAME=epoch22-step12971-val_loss=3.081.ckpt
+python batchrun_pretrained_af2gen.py \
+    $WORK_DIR/output/wandb_af2gen/${YAML_CONFIG_PRESET}-${VERSION}/checkpoints/${CKPT_NAME} \
+    --pdb_dir $WORK_DIR/sabdab/pdb/20220618_Fv_4_All_cdrh3_test \
+    --yaml_config_preset yaml_config/${YAML_CONFIG_PRESET}.yml \
+    --output_dir $WORK_DIR/output/cdrh3/${YAML_CONFIG_PRESET}-${VERSION} \
+    --model_device cuda:0 \
+    --no_recycling_iters 3 \
+    --relax false \
+
+YAML_CONFIG_PRESET=gen_abag
+VERSION=v5
+CKPT_NAME=epoch27-step15791-val_loss=3.838.ckpt
+python batchrun_pretrained_af2gen.py \
+    $WORK_DIR/output/wandb_af2gen/${YAML_CONFIG_PRESET}-${VERSION}/checkpoints/${CKPT_NAME} \
+    --pdb_dir $WORK_DIR/sabdab/pdb/20220618_Fv_4_All_cdrh3_test \
+    --yaml_config_preset yaml_config/${YAML_CONFIG_PRESET}.yml \
+    --output_dir $WORK_DIR/output/cdrh3/${YAML_CONFIG_PRESET}-${VERSION} \
+    --model_device cuda:0 \
+    --no_recycling_iters 3 \
+    --relax false \
+
 
 ############# cat #############
 YAML_CONFIG_PRESET=cat

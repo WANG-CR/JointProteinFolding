@@ -3,7 +3,7 @@ model:
     no_blocks: 8
   structure_module:
     no_blocks: 8
-    mask_loop_type: 1.0
+    mask_loop_type: 0.0
   template:
     enabled: false
   extra_msa:
@@ -13,7 +13,7 @@ data:
   train:
     crop_size: 320
   common:
-    loop_type: CDR
+    loop_type: antibody
 
 optimizer:
   lr: 0.001

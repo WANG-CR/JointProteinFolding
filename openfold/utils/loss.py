@@ -181,8 +181,9 @@ def backbone_loss(
     # it might be fine.
     gt_aff = Rigid.from_tensor_4x4(backbone_rigid_tensor)
 
+    backbone_rigid_mask_pos = backbone_rigid_mask
     if loop_only:
-        backbone_rigid_mask = backbone_rigid_mask * loop_mask
+        backbone_rigid_mask_pos = backbone_rigid_mask_pos * loop_mask
 
     fape_loss = compute_fape(
         pred_aff,
@@ -190,7 +191,7 @@ def backbone_loss(
         backbone_rigid_mask[None],
         pred_aff.get_trans(),
         gt_aff[None].get_trans(),
-        backbone_rigid_mask[None],
+        backbone_rigid_mask_pos[None],
         l1_clamp_distance=clamp_distance,
         length_scale=loss_unit_distance,
         eps=eps,
@@ -202,7 +203,7 @@ def backbone_loss(
             backbone_rigid_mask[None],
             pred_aff.get_trans(),
             gt_aff[None].get_trans(),
-            backbone_rigid_mask[None],
+            backbone_rigid_mask_pos[None],
             l1_clamp_distance=None,
             length_scale=loss_unit_distance,
             eps=eps,
@@ -248,16 +249,19 @@ def sidechain_loss(
     renamed_gt_frames = renamed_gt_frames.view(*batch_dims, -1, 4, 4) # [*, N * 8, 4, 4]
     renamed_gt_frames = Rigid.from_tensor_4x4(renamed_gt_frames)
 
-    if loop_only:
-        rigidgroups_gt_exists = rigidgroups_gt_exists * loop_mask[..., None] # [*, N, 8]
+    # if loop_only:
+    #     rigidgroups_gt_exists = rigidgroups_gt_exists * loop_mask[..., None] # [*, N, 8]
     rigidgroups_gt_exists = rigidgroups_gt_exists.reshape(*batch_dims, -1) # [*, N * 8]
 
     sidechain_atom_pos = sidechain_atom_pos[-1]
     sidechain_atom_pos = sidechain_atom_pos.view(*batch_dims, -1, 3)
     renamed_atom14_gt_positions = renamed_atom14_gt_positions.view(
         *batch_dims, -1, 3
-    )
-    renamed_atom14_gt_exists = renamed_atom14_gt_exists.view(*batch_dims, -1)
+    ) # [*, N * 14, 3]
+
+    if loop_only:
+        renamed_atom14_gt_exists = renamed_atom14_gt_exists * loop_mask[..., None] # [*, N, 14]
+    renamed_atom14_gt_exists = renamed_atom14_gt_exists.view(*batch_dims, -1) # [*, N * 14]
 
     fape = compute_fape(
         sidechain_frames,
@@ -525,8 +529,6 @@ def lddt_loss(
     all_atom_pred_pos = all_atom_pred_pos[..., ca_pos, :]
     all_atom_positions = all_atom_positions[..., ca_pos, :]
 
-    if loop_only:
-        all_atom_mask = all_atom_mask * loop_mask[..., None]
     all_atom_mask = all_atom_mask[..., ca_pos : (ca_pos + 1)]  # keep dim
 
     score = lddt(
@@ -535,7 +537,7 @@ def lddt_loss(
         all_atom_mask, 
         cutoff=cutoff, 
         eps=eps
-    )
+    ) # [*, N]
 
     score = score.detach()
 
@@ -547,6 +549,10 @@ def lddt_loss(
 
     errors = softmax_cross_entropy(logits, lddt_ca_one_hot)
     all_atom_mask = all_atom_mask.squeeze(-1)
+
+    if loop_only:
+        all_atom_mask = all_atom_mask * loop_mask
+
     loss = torch.sum(errors * all_atom_mask, dim=-1) / (
         eps + torch.sum(all_atom_mask, dim=-1)
     )
@@ -598,10 +604,12 @@ def distogram_loss(
         torch.nn.functional.one_hot(true_bins, no_bins),
     )
 
-    if loop_only:
-        pseudo_beta_mask = pseudo_beta_mask * loop_mask
 
     square_mask = pseudo_beta_mask[..., None] * pseudo_beta_mask[..., None, :]
+
+    if loop_only:
+        loop_square_mask = (1 - loop_mask)[..., None] * (1 - loop_mask)[..., None, :]
+        square_mask = square_mask * (1 - loop_square_mask)
 
     # FP16-friendly sum. Equivalent to:
     # mean = (torch.sum(errors * square_mask, dim=(-1, -2)) /
@@ -1705,7 +1713,7 @@ class AlphaFoldLoss(nn.Module):
         loss_fns = {
             "distogram": lambda: distogram_loss(
                 logits=out["distogram_logits"],
-                loop_only=False,
+                loop_only=self.config.loop_only,
                 **{**batch, **self.config.distogram},
             ),
             "experimentally_resolved": lambda: experimentally_resolved_loss(
@@ -1717,12 +1725,12 @@ class AlphaFoldLoss(nn.Module):
                 out,
                 batch,
                 self.config.fape,
-                loop_only=False,
+                loop_only=self.config.loop_only,
             ),
             "lddt": lambda: lddt_loss(
                 logits=out["lddt_logits"], # final step in the structure module
                 all_atom_pred_pos=out["final_atom_positions"],
-                loop_only=False,
+                loop_only=self.config.loop_only,
                 **{**batch, **self.config.lddt},
             ),
             "masked_msa": lambda: masked_msa_loss(
@@ -1736,7 +1744,7 @@ class AlphaFoldLoss(nn.Module):
             "supervised_chi": lambda: supervised_chi_loss(
                 out["sm"]["angles"], # each step in the structure module
                 out["sm"]["unnormalized_angles"],
-                loop_only=False,
+                loop_only=self.config.loop_only,
                 **{**batch, **self.config.supervised_chi},
             ),
             "violation": lambda: violation_loss(
