@@ -45,6 +45,7 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
         _output_raw: bool = False,
         trunc_antigen: bool = False,
         sabdab_summary_file: Optional[str] = None,
+        ss_file: Optional[str] = None,
         _alignment_index: Optional[Any] = None,
     ):
         """
@@ -161,6 +162,14 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
                         except:
                             self.resolution[values[pdb_index]] = 0.0
                             logging.warning(f"fail to parse resolution of {values[pdb_index]}")
+
+        self.second_structure = {}
+        if ss_file is not None:
+            with open(ss_file, 'rb') as fin:
+                second_structure_data = pickle.load(fin)
+            logging.warning(f"get {len(second_structure_data)} second structure data")
+            for ss_ in second_structure_data:
+                self.second_structure[ss_['tag']] = ss_['ss3']
 
     def _parse_mmcif(self, path, file_id, chain_id, alignment_dir, embedding_dir, _alignment_index):
         with open(path, 'r') as f:
