@@ -881,6 +881,28 @@ unk_restype_index = restype_num  # Catch-all index for unknown restypes.
 
 restypes_with_x = restypes + ["X"]
 restype_order_with_x = {restype: i for i, restype in enumerate(restypes_with_x)}
+second_structures = ["H", "E", "C"]
+second_structures_order = {ss: i for i, ss in enumerate(second_structures)}
+
+def ss_to_onehot(
+    ss: str, mapping: Mapping[str, int]
+) -> np.ndarray:
+
+    num_entries = max(mapping.values()) + 1
+
+    if sorted(set(mapping.values())) != list(range(num_entries)):
+        raise ValueError(
+            "The mapping must have values from 0 to num_unique_aas-1 "
+            "without any gaps. Got: %s" % sorted(mapping.values())
+        )
+
+    one_hot_arr = np.zeros((len(ss), num_entries), dtype=np.int32)
+
+    for aa_index, aa_type in enumerate(ss):
+        aa_id = mapping[aa_type]
+        one_hot_arr[aa_index, aa_id] = 1
+
+    return one_hot_arr
 
 
 def sequence_to_onehot(

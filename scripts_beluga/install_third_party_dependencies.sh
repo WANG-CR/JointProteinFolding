@@ -1,10 +1,10 @@
 #!/bin/bash
 
-ENV_NAME=biofold
+ENV_NAME=cath_gen
 
 # Grab conda-only packages
 conda update -qy conda
-conda env create --name=$ENV_NAME -f scripts_narval/environment.yml
+conda env create --name=$ENV_NAME -f scripts_beluga/environment.yml
 source activate $ENV_NAME
 
 # Install DeepMind's OpenMM patch
