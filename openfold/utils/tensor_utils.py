@@ -334,10 +334,8 @@ def chunk_layer(
     orig_batch_dims = tuple([max(s) for s in zip(*initial_dims)])
 
     def _prep_inputs(t):
-        # TODO: make this more memory efficient. This sucks
-        if(not low_mem):
-            if not sum(t.shape[:no_batch_dims]) == no_batch_dims:
-                t = t.expand(orig_batch_dims + t.shape[no_batch_dims:])
+        if not low_mem:
+            t = t.expand(orig_batch_dims + t.shape[no_batch_dims:])
             t = t.reshape(-1, *t.shape[no_batch_dims:])
         else:
             t = t.expand(orig_batch_dims + t.shape[no_batch_dims:])
@@ -357,7 +355,7 @@ def chunk_layer(
     out = None
     for _ in range(no_chunks):
         # Chunk the input
-        if(not low_mem):
+        if not low_mem:
             select_chunk = (
                 lambda t: t[i : i + chunk_size] if t.shape[0] != 1 else t
             )

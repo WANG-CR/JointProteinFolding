@@ -25,18 +25,18 @@ from openfold.utils.tensor_utils import chunk_layer
 
 class OuterProductMean(nn.Module):
     """
-    Implements Algorithm 10.
+    Adapted from Algorithm 10.
     """
 
     def __init__(self, c_m, c_z, c_hidden, eps=1e-3):
         """
         Args:
             c_m:
-                MSA embedding channel dimension
+                seq embedding channel dimension
             c_z:
-                Pair embedding channel dimension
+                pair embedding channel dimension
             c_hidden:
-                Hidden channel dimension
+                hidden channel dimension
         """
         super(OuterProductMean, self).__init__()
 
@@ -51,8 +51,9 @@ class OuterProductMean(nn.Module):
         self.linear_out = Linear(c_hidden ** 2, c_z, init="final")
 
     def _opm(self, a, b):
+        # a, b: [*, N_res, C]
         # [*, N_res, N_res, C, C]
-        outer = torch.einsum("...bac,...dae->...bdce", a, b)
+        outer = torch.einsum("...bc,...de->...bdce", a, b)
 
         # [*, N_res, N_res, C * C]
         outer = outer.reshape(outer.shape[:-2] + (-1,))
@@ -68,11 +69,15 @@ class OuterProductMean(nn.Module):
         b: torch.Tensor, 
         chunk_size: int
     ) -> torch.Tensor:
+        # a: [*, N_res, C]
+
         # Since the "batch dim" in this case is not a true batch dimension
         # (in that the shape of the output depends on it), we need to
         # iterate over it ourselves
-        a_reshape = a.reshape((-1,) + a.shape[-3:])
-        b_reshape = b.reshape((-1,) + b.shape[-3:])
+        
+        # [*, N_res, N_seq, C]
+        a_reshape = a.reshape((-1,) + a.shape[-2:])
+        b_reshape = b.reshape((-1,) + b.shape[-2:])
         out = []
         for a_prime, b_prime in zip(a_reshape, b_reshape):
             outer = chunk_layer(
@@ -83,7 +88,7 @@ class OuterProductMean(nn.Module):
             )
             out.append(outer)
         outer = torch.stack(out, dim=0)
-        outer = outer.reshape(a.shape[:-3] + outer.shape[1:])
+        outer = outer.reshape(a.shape[:-2] + outer.shape[1:])
 
         return outer
 
@@ -95,25 +100,22 @@ class OuterProductMean(nn.Module):
         """
         Args:
             m:
-                [*, N_seq, N_res, C_m] MSA embedding
+                [*, N_res, C_m] sequence embedding
             mask:
-                [*, N_seq, N_res] MSA mask
+                [*, N_res] sequence mask
         Returns:
             [*, N_res, N_res, C_z] pair embedding update
         """
         if mask is None:
             mask = m.new_ones(m.shape[:-1])
 
-        # [*, N_seq, N_res, C_m]
+        # [*, N_res, C_m]
         m = self.layer_norm(m)
 
-        # [*, N_seq, N_res, C]
+        # [*, N_res, C]
         mask = mask.unsqueeze(-1)
         a = self.linear_1(m) * mask
         b = self.linear_2(m) * mask
-
-        a = a.transpose(-2, -3)
-        b = b.transpose(-2, -3)
 
         if chunk_size is not None:
             outer = self._chunk(a, b, chunk_size)
@@ -121,7 +123,7 @@ class OuterProductMean(nn.Module):
             outer = self._opm(a, b)
 
         # [*, N_res, N_res, 1]
-        norm = torch.einsum("...abc,...adc->...bdc", mask, mask)
+        norm = torch.einsum("...bc,...dc->...bdc", mask, mask)
 
         # [*, N_res, N_res, C_z]
         outer = outer / (self.eps + norm)

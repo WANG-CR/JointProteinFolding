@@ -81,7 +81,6 @@ class PairTransition(nn.Module):
         Returns:
             [*, N_res, N_res, C_z] pair embedding update
         """
-        # DISCREPANCY: DeepMind forgets to apply the mask in this module.
         if mask is None:
             mask = z.new_ones(z.shape[:-1])
 

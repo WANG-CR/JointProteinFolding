@@ -1,18 +1,3 @@
-# Copyright 2021 AlQuraishi Laboratory
-# Copyright 2021 DeepMind Technologies Limited
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#      http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 import copy
 from typing import Mapping, Tuple, List, Optional, Dict, Sequence
 
@@ -25,6 +10,25 @@ from openfold.data import input_pipeline
 
 FeatureDict = Mapping[str, np.ndarray]
 TensorDict = Dict[str, torch.Tensor]
+
+
+def make_data_config(
+    config: ml_collections.ConfigDict,
+    mode: str,
+    num_res: int,
+) -> Tuple[ml_collections.ConfigDict, List[str]]:
+    cfg = copy.deepcopy(config)
+    mode_cfg = cfg[mode]
+    with cfg.unlocked():
+        if mode_cfg.crop_size is None:
+            mode_cfg.crop_size = num_res
+
+    feature_names = cfg.common.unsupervised_features
+
+    if cfg[mode].supervised:
+        feature_names += cfg.supervised.supervised_features
+
+    return cfg, feature_names
 
 
 def np_to_tensor_dict(
@@ -47,28 +51,6 @@ def np_to_tensor_dict(
     return tensor_dict
 
 
-def make_data_config(
-    config: ml_collections.ConfigDict,
-    mode: str,
-    num_res: int,
-) -> Tuple[ml_collections.ConfigDict, List[str]]:
-    cfg = copy.deepcopy(config)
-    mode_cfg = cfg[mode]
-    with cfg.unlocked():
-        if mode_cfg.crop_size is None:
-            mode_cfg.crop_size = num_res
-
-    feature_names = cfg.common.unsupervised_features
-
-    if cfg.common.use_templates:
-        feature_names += cfg.common.template_features
-
-    if cfg[mode].supervised or cfg[mode].is_refine or mode_cfg.mask_loop_type:
-        feature_names += cfg.supervised.supervised_features
-
-    return cfg, feature_names
-
-
 def np_example_to_features(
     np_example: FeatureDict,
     config: ml_collections.ConfigDict,
@@ -76,15 +58,13 @@ def np_example_to_features(
 ):
     np_example = dict(np_example)
     num_res = int(np_example["seq_length"][0])
-    cfg, feature_names = make_data_config(config, mode=mode, num_res=num_res)
-
-    if "deletion_matrix_int" in np_example:
-        np_example["deletion_matrix"] = np_example.pop(
-            "deletion_matrix_int"
-        ).astype(np.float32)
+    cfg, feature_names = make_data_config(
+        config, mode=mode, num_res=num_res
+    )
 
     tensor_dict = np_to_tensor_dict(
-        np_example=np_example, features=feature_names
+        np_example=np_example,
+        features=feature_names,
     )
     with torch.no_grad():
         features = input_pipeline.process_tensors_from_config(

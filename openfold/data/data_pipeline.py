@@ -32,7 +32,7 @@ def make_sequence_features(
         mapping=residue_constants.restype_order_with_x,
         map_unknown_to_x=True,
     )
-    features["ssfeat"] = residue_constants.ss_to_onehot(
+    features["sstype"] = residue_constants.ss_to_onehot(
         ss=ss,
         mapping=residue_constants.second_structures_order,
     )

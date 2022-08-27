@@ -163,8 +163,6 @@ def backbone_loss(
     clamp_distance: float = 10.0,
     loss_unit_distance: float = 10.0,
     eps: float = 1e-4,
-    loop_mask: Optional[torch.Tensor] = None,
-    loop_only: bool = False,
     **kwargs,
 ) -> torch.Tensor:
     pred_aff = Rigid.from_tensor_7(traj)
@@ -182,8 +180,6 @@ def backbone_loss(
     gt_aff = Rigid.from_tensor_4x4(backbone_rigid_tensor)
 
     backbone_rigid_mask_pos = backbone_rigid_mask
-    if loop_only:
-        backbone_rigid_mask_pos = backbone_rigid_mask_pos * loop_mask
 
     fape_loss = compute_fape(
         pred_aff,
@@ -231,8 +227,6 @@ def sidechain_loss(
     clamp_distance: float = 10.0,
     length_scale: float = 10.0,
     eps: float = 1e-4,
-    loop_mask: Optional[torch.Tensor] = None,
-    loop_only: bool = False,
     **kwargs,
 ) -> torch.Tensor:
     renamed_gt_frames = (
@@ -249,8 +243,6 @@ def sidechain_loss(
     renamed_gt_frames = renamed_gt_frames.view(*batch_dims, -1, 4, 4) # [*, N * 8, 4, 4]
     renamed_gt_frames = Rigid.from_tensor_4x4(renamed_gt_frames)
 
-    # if loop_only:
-    #     rigidgroups_gt_exists = rigidgroups_gt_exists * loop_mask[..., None] # [*, N, 8]
     rigidgroups_gt_exists = rigidgroups_gt_exists.reshape(*batch_dims, -1) # [*, N * 8]
 
     sidechain_atom_pos = sidechain_atom_pos[-1]
@@ -259,8 +251,6 @@ def sidechain_loss(
         *batch_dims, -1, 3
     ) # [*, N * 14, 3]
 
-    if loop_only:
-        renamed_atom14_gt_exists = renamed_atom14_gt_exists * loop_mask[..., None] # [*, N, 14]
     renamed_atom14_gt_exists = renamed_atom14_gt_exists.view(*batch_dims, -1) # [*, N * 14]
 
     fape = compute_fape(
@@ -282,18 +272,15 @@ def fape_loss(
     out: Dict[str, torch.Tensor],
     batch: Dict[str, torch.Tensor],
     config: ml_collections.ConfigDict,
-    loop_only: bool = False,
 ) -> torch.Tensor:
     bb_loss = backbone_loss(
         traj=out["sm"]["frames"],
-        loop_only=loop_only,
         **{**batch, **config.backbone},
     )
 
     sc_loss = sidechain_loss(
         out["sm"]["sidechain_frames"],
         out["sm"]["positions"],
-        loop_only=loop_only,
         **{**batch, **config.sidechain},
     )
 
@@ -315,8 +302,6 @@ def supervised_chi_loss(
     chi_weight: float,
     angle_norm_weight: float,
     eps=1e-6,
-    loop_mask: Optional[torch.Tensor] = None,
-    loop_only: bool = False,
     **kwargs,
 ) -> torch.Tensor:
     """
@@ -367,10 +352,6 @@ def supervised_chi_loss(
     sq_chi_error = sq_chi_error.permute(
         *range(len(sq_chi_error.shape))[1:-2], 0, -2, -1
     )
-
-    if loop_only:
-        chi_mask = chi_mask * loop_mask[..., None]
-        seq_mask = seq_mask * loop_mask
 
     sq_chi_loss = masked_mean(
         chi_mask[..., None, :, :], sq_chi_error, dim=(-1, -2, -3)
@@ -424,6 +405,37 @@ def compute_plddt(logits: torch.Tensor) -> torch.Tensor:
         dim=-1,
     )
     return pred_lddt_ca * 100
+
+
+def compute_contact_ca(
+    all_atom_positions: torch.Tensor,
+    all_atom_mask: torch.Tensor,
+    cutoff: float = 8.0,
+    eps: float = 1e-10,
+) -> torch.Tensor:
+    ca_pos = residue_constants.atom_order["CA"]
+    
+    # [*, N, 3]
+    all_atom_positions = all_atom_positions[..., ca_pos, :]
+    # [*, N, 1]
+    all_atom_mask = all_atom_mask[..., ca_pos : (ca_pos + 1)]  # keep dim
+    dmat = torch.sqrt(
+        eps
+        + torch.sum(
+            (
+                all_atom_positions[..., None, :]
+                - all_atom_positions[..., None, :, :]
+            )
+            ** 2,
+            dim=-1,
+        )
+    )
+    contact = (
+        (dmat < cutoff)
+        * all_atom_mask
+        * permute_final_dims(all_atom_mask, (1, 0))
+    ).type(torch.long)
+    return contact
 
 
 def lddt(
@@ -519,8 +531,6 @@ def lddt_loss(
     min_resolution: float = 0.1,
     max_resolution: float = 3.0,
     eps: float = 1e-10,
-    loop_mask: Optional[torch.Tensor] = None,
-    loop_only: bool = False,
     **kwargs,
 ) -> torch.Tensor:
     n = all_atom_mask.shape[-2]
@@ -550,9 +560,6 @@ def lddt_loss(
     errors = softmax_cross_entropy(logits, lddt_ca_one_hot)
     all_atom_mask = all_atom_mask.squeeze(-1)
 
-    if loop_only:
-        all_atom_mask = all_atom_mask * loop_mask
-
     loss = torch.sum(errors * all_atom_mask, dim=-1) / (
         eps + torch.sum(all_atom_mask, dim=-1)
     )
@@ -575,8 +582,6 @@ def distogram_loss(
     max_bin=21.6875,
     no_bins=64,
     eps=1e-6,
-    loop_mask: Optional[torch.Tensor] = None,
-    loop_only: bool = False,
     **kwargs,
 ):
 
@@ -606,10 +611,6 @@ def distogram_loss(
 
 
     square_mask = pseudo_beta_mask[..., None] * pseudo_beta_mask[..., None, :]
-
-    if loop_only:
-        loop_square_mask = (1 - loop_mask)[..., None] * (1 - loop_mask)[..., None, :]
-        square_mask = square_mask * (1 - loop_square_mask)
 
     # FP16-friendly sum. Equivalent to:
     # mean = (torch.sum(errors * square_mask, dim=(-1, -2)) /
@@ -1534,13 +1535,8 @@ def experimentally_resolved_loss(
     min_resolution: float,
     max_resolution: float,
     eps: float = 1e-8,
-    loop_mask: Optional[torch.Tensor] = None,
-    loop_only: bool = False,
     **kwargs,
 ) -> torch.Tensor:
-    if loop_only:
-        atom37_atom_exists = atom37_atom_exists * loop_mask[..., None]
-
     errors = sigmoid_cross_entropy(logits, all_atom_mask)
     loss = torch.sum(errors * atom37_atom_exists, dim=-1)
     loss = loss / (eps + torch.sum(atom37_atom_exists, dim=(-1, -2)))
@@ -1555,47 +1551,14 @@ def experimentally_resolved_loss(
     return loss
 
 
-def masked_msa_loss(logits, true_msa, bert_mask, eps=1e-8, **kwargs):
-    """
-    Computes BERT-style masked MSA loss. Implements subsection 1.9.9.
-
-    Args:
-        logits: [*, N_seq, N_res, 23] predicted residue distribution
-        true_msa: [*, N_seq, N_res] true MSA
-        bert_mask: [*, N_seq, N_res] MSA mask
-    Returns:
-        Masked MSA loss
-    """
-    errors = softmax_cross_entropy(
-        logits, torch.nn.functional.one_hot(true_msa, num_classes=23)
-    )
-
-    # FP16-friendly averaging. Equivalent to:
-    # loss = (
-    #     torch.sum(errors * bert_mask, dim=(-1, -2)) /
-    #     (eps + torch.sum(bert_mask, dim=(-1, -2)))
-    # )
-    loss = errors * bert_mask
-    loss = torch.sum(loss, dim=-1)
-    scale = 0.5
-    denom = eps + torch.sum(scale * bert_mask, dim=(-1, -2))
-    loss = loss / denom[..., None]
-    loss = torch.sum(loss, dim=-1)
-    loss = loss * scale
-
-    loss = torch.mean(loss)
-
-    return loss
-
-
-def masked_seq_loss(logits, aatype, loop_mask, eps=1e-8, **kwargs):
+def seqs_loss(logits, aatype, seq_mask, eps=1e-8, **kwargs):
     """
     Computes sequence type cross-entropy loss.
 
     Args:
         logits: [traj, *, N_res, 21] predicted seq type logits
         aatype: [*, N_res] true seq type
-        loop_mask: [*, N_res] loop mask
+        seq_mask: [*, N_res] seq mask
     Returns:
         seq type loss
     """
@@ -1612,16 +1575,16 @@ def masked_seq_loss(logits, aatype, loop_mask, eps=1e-8, **kwargs):
     errors = errors.permute(
         *range(len(errors.shape))[1:-1], 0, -1
     )
-    loop_mask = loop_mask[..., None, :].expand_as(errors)
+    seq_mask = seq_mask[..., None, :].expand_as(errors)
     # FP16-friendly averaging. Equivalent to:
     # loss = (
-    #     torch.sum(errors * loop_mask, dim=(-1, -2)) /
-    #     (eps + torch.sum(loop_mask, dim=(-1, -2)))
+    #     torch.sum(errors * seq_mask, dim=(-1, -2)) /
+    #     (eps + torch.sum(seq_mask, dim=(-1, -2)))
     # )
-    loss = errors * loop_mask
+    loss = errors * seq_mask
     loss = torch.sum(loss, dim=-1)
     scale = 0.5
-    denom = eps + torch.sum(scale * loop_mask, dim=(-1, -2))
+    denom = eps + torch.sum(scale * seq_mask, dim=(-1, -2))
     loss = loss / denom[..., None]
     loss = torch.sum(loss, dim=-1)
     loss = loss * scale
@@ -1713,38 +1676,29 @@ class AlphaFoldLoss(nn.Module):
         loss_fns = {
             "distogram": lambda: distogram_loss(
                 logits=out["distogram_logits"],
-                loop_only=self.config.loop_only,
                 **{**batch, **self.config.distogram},
             ),
             "experimentally_resolved": lambda: experimentally_resolved_loss(
                 logits=out["experimentally_resolved_logits"],
-                loop_only=False,
                 **{**batch, **self.config.experimentally_resolved},
             ),
             "fape": lambda: fape_loss(
                 out,
                 batch,
                 self.config.fape,
-                loop_only=self.config.loop_only,
             ),
             "lddt": lambda: lddt_loss(
                 logits=out["lddt_logits"], # final step in the structure module
                 all_atom_pred_pos=out["final_atom_positions"],
-                loop_only=self.config.loop_only,
                 **{**batch, **self.config.lddt},
             ),
-            "masked_msa": lambda: masked_msa_loss(
-                logits=out["masked_msa_logits"],
-                **{**batch, **self.config.masked_msa},
-            ),
-            "masked_seq": lambda: masked_seq_loss(
-                logits=out["sm"]["masked_seq_logits"],
-                **{**batch, **self.config.masked_seq},
+            "seqs": lambda: seqs_loss(
+                logits=out["sm"]["seqs_logits"],
+                **{**batch, **self.config.seqs},
             ),
             "supervised_chi": lambda: supervised_chi_loss(
                 out["sm"]["angles"], # each step in the structure module
                 out["sm"]["unnormalized_angles"],
-                loop_only=self.config.loop_only,
                 **{**batch, **self.config.supervised_chi},
             ),
             "violation": lambda: violation_loss(
@@ -1753,17 +1707,11 @@ class AlphaFoldLoss(nn.Module):
             ),
         }
 
-        if(self.config.tm.enabled):
-            loss_fns["tm"] = lambda: tm_loss(
-                logits=out["tm_logits"],
-                **{**batch, **out, **self.config.tm},
-            )
-
         cum_loss = 0.
         losses = {}
         for loss_name, loss_fn in loss_fns.items():
             weight = self.config[loss_name].weight
-            
+
             if weight > 0:
                 loss = loss_fn()
                 if(torch.isnan(loss) or torch.isinf(loss)):

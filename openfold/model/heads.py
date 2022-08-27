@@ -19,8 +19,6 @@ import torch.nn as nn
 from openfold.model.primitives import Linear, LayerNorm
 from openfold.utils.loss import (
     compute_plddt,
-    compute_tm,
-    compute_predicted_aligned_error,
 )
 
 
@@ -31,19 +29,12 @@ class AuxiliaryHeads(nn.Module):
         key2head_fn = {
             "lddt": PerResidueLDDTCaPredictor,
             "distogram": DistogramHead,
-            "masked_msa": MaskedMSAHead,
-            # "masked_seq": MaskedSEQHead,
             "experimentally_resolved": ExperimentallyResolvedHead,
         }
         for key in key2head_fn:
             if config[key]["weight"] > 0:
                 attr_name = key if key != "lddt" else "plddt"
                 setattr(self, attr_name, key2head_fn[key](**config[key]))
-
-        if config.tm.enabled:
-            self.tm = TMScoreHead(
-                **config.tm,
-            )
 
         self.config = config
 
@@ -57,24 +48,15 @@ class AuxiliaryHeads(nn.Module):
             aux_out["plddt"] = compute_plddt(lddt_logits)
 
             # plddt for each step's single representation
-            lddt_logits = self.plddt(outputs["sm"]["singles"])
-            aux_out["lddt_logits_by_sm_step"] = lddt_logits
-            aux_out["plddt_by_sm_step"] = compute_plddt(lddt_logits)
+            # lddt_logits = self.plddt(outputs["sm"]["singles"])
+            # aux_out["lddt_logits_by_sm_step"] = lddt_logits
+            # aux_out["plddt_by_sm_step"] = compute_plddt(lddt_logits)
 
         if hasattr(self, "distogram"):
             # outputs of evoformer
             distogram_logits = self.distogram(outputs["pair"])
             aux_out["distogram_logits"] = distogram_logits
 
-        if hasattr(self, "masked_msa"):
-            # outputs of evoformer
-            masked_msa_logits = self.masked_msa(outputs["msa"])
-            aux_out["masked_msa_logits"] = masked_msa_logits
-
-        # if hasattr(self, "masked_seq"):
-        #     # outputs of evoformer
-        #     masked_msa_logits = self.masked_msa(outputs["msa"])
-        #     aux_out["masked_msa_logits"] = masked_msa_logits
 
         if hasattr(self, "experimentally_resolved"):
             # outputs of evoformer
@@ -84,19 +66,6 @@ class AuxiliaryHeads(nn.Module):
             aux_out[
                 "experimentally_resolved_logits"
             ] = experimentally_resolved_logits
-
-        if self.config.tm.enabled:
-            tm_logits = self.tm(outputs["pair"])
-            aux_out["tm_logits"] = tm_logits
-            aux_out["predicted_tm_score"] = compute_tm(
-                tm_logits, **self.config.tm
-            )
-            aux_out.update(
-                compute_predicted_aligned_error(
-                    tm_logits,
-                    **self.config.tm,
-                )
-            )
 
         return aux_out
 
@@ -194,72 +163,6 @@ class TMScoreHead(nn.Module):
         """
         # [*, N, N, no_bins]
         logits = self.linear(z)
-        return logits
-
-
-class MaskedMSAHead(nn.Module):
-    """
-    For use in computation of masked MSA loss, subsection 1.9.9
-    """
-
-    def __init__(self, c_m, c_out, **kwargs):
-        """
-        Args:
-            c_m:
-                MSA channel dimension
-            c_out:
-                Output channel dimension
-        """
-        super(MaskedMSAHead, self).__init__()
-
-        self.c_m = c_m
-        self.c_out = c_out
-
-        self.linear = Linear(self.c_m, self.c_out, init="final")
-
-    def forward(self, m):
-        """
-        Args:
-            m:
-                [*, N_seq, N_res, C_m] MSA embedding
-        Returns:
-            [*, N_seq, N_res, C_out] reconstruction
-        """
-        # [*, N_seq, N_res, C_out]
-        logits = self.linear(m)
-        return logits
-
-
-class MaskedSEQHead(nn.Module):
-    """
-    predict the masked sequence type
-    """
-
-    def __init__(self, c_in, c_out, **kwargs):
-        """
-        Args:
-            c_in:
-                SEQ channel dimension
-            c_out:
-                Output channel dimension
-        """
-        super(MaskedMSAHead, self).__init__()
-
-        self.c_in = c_in
-        self.c_out = c_out
-
-        self.linear = Linear(self.c_in, self.c_out, init="final")
-
-    def forward(self, s):
-        """
-        Args:
-            s:
-                [*, N_res, C_in] sequence embedding
-        Returns:
-            [*, N_res, C_out] reconstruction
-        """
-        # [*, N_res, C_out]
-        logits = self.linear(s)
         return logits
 
 

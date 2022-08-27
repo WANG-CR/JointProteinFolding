@@ -50,65 +50,6 @@ def model_config(
         if name == "initial_training":
             # AF2 Suppl. Table 4, "initial training" setting
             pass
-        elif name == "finetuning":
-            # AF2 Suppl. Table 4, "finetuning" setting
-            c.data.common.max_extra_msa = 5120
-            c.data.train.crop_size = 384
-            c.data.train.max_msa_clusters = 512
-            c.loss.violation.weight = 1.
-        elif name == "model_1":
-            # AF2 Suppl. Table 5, Model 1.1.1
-            c.data.common.max_extra_msa = 5120
-            c.data.common.reduce_max_clusters_by_max_templates = True
-            c.data.common.use_templates = True
-            c.data.common.use_template_torsion_angles = True
-            c.model.template.enabled = True
-        elif name == "model_2":
-            # AF2 Suppl. Table 5, Model 1.1.2
-            c.data.common.reduce_max_clusters_by_max_templates = True
-            c.data.common.use_templates = True
-            c.data.common.use_template_torsion_angles = True
-            c.model.template.enabled = True
-        elif name == "model_3":
-            # AF2 Suppl. Table 5, Model 1.2.1
-            c.data.common.max_extra_msa = 5120
-            c.model.template.enabled = False
-        elif name == "model_4":
-            # AF2 Suppl. Table 5, Model 1.2.2
-            c.data.common.max_extra_msa = 5120
-            c.model.template.enabled = False
-        elif name == "model_5":
-            # AF2 Suppl. Table 5, Model 1.2.3
-            c.model.template.enabled = False
-        elif name == "model_1_ptm":
-            c.data.common.max_extra_msa = 5120
-            c.data.common.reduce_max_clusters_by_max_templates = True
-            c.data.common.use_templates = True
-            c.data.common.use_template_torsion_angles = True
-            c.model.template.enabled = True
-            c.model.heads.tm.enabled = True
-            c.loss.tm.weight = 0.1
-        elif name == "model_2_ptm":
-            c.data.common.reduce_max_clusters_by_max_templates = True
-            c.data.common.use_templates = True
-            c.data.common.use_template_torsion_angles = True
-            c.model.template.enabled = True
-            c.model.heads.tm.enabled = True
-            c.loss.tm.weight = 0.1
-        elif name == "model_3_ptm":
-            c.data.common.max_extra_msa = 5120
-            c.model.template.enabled = False
-            c.model.heads.tm.enabled = True
-            c.loss.tm.weight = 0.1
-        elif name == "model_4_ptm":
-            c.data.common.max_extra_msa = 5120
-            c.model.template.enabled = False
-            c.model.heads.tm.enabled = True
-            c.loss.tm.weight = 0.1
-        elif name == "model_5_ptm":
-            c.model.template.enabled = False
-            c.model.heads.tm.enabled = True
-            c.loss.tm.weight = 0.1
         else:
             raise ValueError("Invalid model name")
 
@@ -132,12 +73,11 @@ def model_config(
 
 
 # loss weight
-distogram_weight = mlc.FieldReference(0.3, field_type=float)
+distogram_weight = mlc.FieldReference(0.0, field_type=float)
 experimentally_resolved_weight = mlc.FieldReference(0.0, field_type=float)
 fape_weight = mlc.FieldReference(1.0, field_type=float)
 lddt_weight = mlc.FieldReference(0.01, field_type=float)
-masked_msa_weight = mlc.FieldReference(2.0, field_type=float)
-masked_seq_weight = mlc.FieldReference(0.0, field_type=float)
+seqs_weight = mlc.FieldReference(1.0, field_type=float)
 supervised_chi_weight = mlc.FieldReference(1.0, field_type=float)
 violation_weight = mlc.FieldReference(0.0, field_type=float)
 tm_weight = mlc.FieldReference(0.0, field_type=float)
@@ -152,17 +92,8 @@ chunk_size = mlc.FieldReference(4, field_type=int)
 aux_distogram_bins = mlc.FieldReference(64, field_type=int)
 tm_enabled = mlc.FieldReference(False, field_type=bool)
 eps = mlc.FieldReference(1e-8, field_type=float)
-templates_enabled = mlc.FieldReference(True, field_type=bool)
-residue_emb_enabled = mlc.FieldReference(False, field_type=bool)
-residue_attn_enabled = mlc.FieldReference(False, field_type=bool)
-embed_template_torsion_angles = mlc.FieldReference(True, field_type=bool)
-is_refine = mlc.FieldReference(False, field_type=bool)
-loop_only = mlc.FieldReference(False, field_type=bool)
 
 NUM_RES = "num residues placeholder"
-NUM_MSA_SEQ = "msa placeholder"
-NUM_EXTRA_SEQ = "extra msa placeholder"
-NUM_TEMPLATES = "num templates placeholder"
 
 
 config = mlc.ConfigDict(
@@ -171,11 +102,9 @@ config = mlc.ConfigDict(
             "common": {
                 "feat": {
                     "aatype": [NUM_RES],
-                    "loop_index": [NUM_RES],
-                    "loop_mask": [NUM_RES],
+                    "ss_feat": [NUM_RES, None],
                     "all_atom_mask": [NUM_RES, None],
                     "all_atom_positions": [NUM_RES, None, None],
-                    "pred_atom_positions": [NUM_RES, None, None],
                     "alt_chi_angles": [NUM_RES, None],
                     "atom14_alt_gt_exists": [NUM_RES, None],
                     "atom14_alt_gt_positions": [NUM_RES, None, None],
@@ -187,30 +116,16 @@ config = mlc.ConfigDict(
                     "backbone_rigid_mask": [NUM_RES],
                     "backbone_rigid_tensor": [NUM_RES, None, None],
                     "backbone_rigid_tensor_7s": [NUM_RES, None],
-                    "backbone_pred_rigid_7s": [NUM_RES, None],
-                    "bert_mask": [NUM_MSA_SEQ, NUM_RES],
                     "chi_angles_sin_cos": [NUM_RES, None, None],
                     "torsion_angles_sin_cos": [NUM_RES, None, None],
                     "chi_mask": [NUM_RES, None],
-                    "extra_deletion_value": [NUM_EXTRA_SEQ, NUM_RES],
-                    "extra_has_deletion": [NUM_EXTRA_SEQ, NUM_RES],
-                    "extra_msa": [NUM_EXTRA_SEQ, NUM_RES],
-                    "extra_msa_mask": [NUM_EXTRA_SEQ, NUM_RES],
-                    "extra_msa_row_mask": [NUM_EXTRA_SEQ],
-                    "is_distillation": [],
-                    "msa_feat": [NUM_MSA_SEQ, NUM_RES, None],
-                    "msa_mask": [NUM_MSA_SEQ, NUM_RES],
-                    "msa_row_mask": [NUM_MSA_SEQ],
                     "no_recycling_iters": [],
                     "pseudo_beta": [NUM_RES, None],
                     "pseudo_beta_mask": [NUM_RES],
                     "residue_index": [NUM_RES],
                     "chain_index": [NUM_RES],
-                    "residue_emb": [None, NUM_RES, None],
-                    "residue_attn": [NUM_RES, NUM_RES, None],
                     "residx_atom14_to_atom37": [NUM_RES, None],
                     "residx_atom37_to_atom14": [NUM_RES, None],
-                    "resolution": [],
                     "rigidgroups_alt_gt_frames": [NUM_RES, None, None, None],
                     "rigidgroups_group_exists": [NUM_RES, None],
                     "rigidgroups_group_is_ambiguous": [NUM_RES, None],
@@ -218,125 +133,50 @@ config = mlc.ConfigDict(
                     "rigidgroups_gt_frames": [NUM_RES, None, None, None],
                     "seq_length": [],
                     "seq_mask": [NUM_RES],
-                    "target_feat": [NUM_RES, None],
-                    "template_aatype": [NUM_TEMPLATES, NUM_RES],
-                    "template_all_atom_mask": [NUM_TEMPLATES, NUM_RES, None],
-                    "template_all_atom_positions": [
-                        NUM_TEMPLATES, NUM_RES, None, None,
-                    ],
-                    "template_alt_torsion_angles_sin_cos": [
-                        NUM_TEMPLATES, NUM_RES, None, None,
-                    ],
-                    "template_backbone_rigid_mask": [NUM_TEMPLATES, NUM_RES],
-                    "template_backbone_rigid_tensor": [
-                        NUM_TEMPLATES, NUM_RES, None, None,
-                    ],
-                    "template_mask": [NUM_TEMPLATES],
-                    "template_pseudo_beta": [NUM_TEMPLATES, NUM_RES, None],
-                    "template_pseudo_beta_mask": [NUM_TEMPLATES, NUM_RES],
-                    "template_sum_probs": [NUM_TEMPLATES, None],
-                    "template_torsion_angles_mask": [
-                        NUM_TEMPLATES, NUM_RES, None,
-                    ],
-                    "template_torsion_angles_sin_cos": [
-                        NUM_TEMPLATES, NUM_RES, None, None,
-                    ],
-                    "true_msa": [NUM_MSA_SEQ, NUM_RES],
                     "use_clamped_fape": [],
                 },
-                "masked_msa": {
-                    "profile_prob": 0.1,
-                    "same_prob": 0.1,
-                    "uniform_prob": 0.1,
-                },
-                "max_extra_msa": 1024,
                 "max_recycling_iters": 3,
-                "msa_cluster_features": True,
-                "reduce_msa_clusters_by_max_templates": False,
-                "resample_msa_in_recycling": True,
-                "template_features": [
-                    "template_all_atom_positions",
-                    "template_sum_probs",
-                    "template_aatype",
-                    "template_all_atom_mask",
-                ],
                 "unsupervised_features": [
                     "aatype",
+                    "sstype",
                     "residue_index",
                     "chain_index",
-                    "msa",
-                    "num_alignments",
                     "seq_length",
                     "between_segment_residues",
-                    "deletion_matrix",
                     "no_recycling_iters",
-                    "residue_emb",
-                    "residue_attn",
-                    "loop_index",
                 ],
-                "use_templates": templates_enabled,
-                "use_template_torsion_angles": embed_template_torsion_angles,
-                "loop_type": None,
             },
             "supervised": {
                 "clamp_prob": 0.9,
                 "supervised_features": [
                     "all_atom_mask",
                     "all_atom_positions",
-                    "pred_atom_positions",
-                    "resolution",
                     "use_clamped_fape",
-                    "is_distillation",
                 ],
             },
             "predict": {
                 "fixed_size": True,
-                "subsample_templates": False, # We want top templates.
-                "masked_msa_replace_fraction": 0.15,
-                "max_msa_clusters": 128,
-                "max_template_hits": 4,
-                "max_templates": 4,
                 "crop": False,
                 "crop_size": None,
                 "supervised": False,
-                "is_refine": is_refine,
-                "mask_loop_type": masked_seq_weight,
                 "uniform_recycling": False,
-                "distillation_prob": 0.75, # necessary if distillation dir is provided
             },
             "eval": {
                 "fixed_size": True,
-                "subsample_templates": False, # We want top templates.
-                "masked_msa_replace_fraction": 0.15,
-                "max_msa_clusters": 128,
-                "max_template_hits": 4,
-                "max_templates": 4,
                 "crop": False,
                 "crop_size": None, # necessary for batch_size >= 2
                 "supervised": True,
-                "is_refine": is_refine,
-                "mask_loop_type": masked_seq_weight,
                 "uniform_recycling": False,
             },
             "train": {
                 "fixed_size": True,
-                "subsample_templates": True,
-                "masked_msa_replace_fraction": 0.15,
-                "max_msa_clusters": 128,
-                "max_template_hits": 4,
-                "max_templates": 4,
-                "shuffle_top_k_prefiltered": 20,
                 "crop": True,
                 "crop_size": 256,
                 "supervised": True,
-                "is_refine": is_refine,
-                "mask_loop_type": masked_seq_weight,
                 "clamp_prob": 0.9,
-                "max_distillation_msa_clusters": 1000,
                 "uniform_recycling": True,
             },
             "data_module": {
-                "use_small_bfd": False,
                 "data_loaders": {
                     "batch_size": 1,
                     "num_workers": 10,
@@ -354,7 +194,6 @@ config = mlc.ConfigDict(
             "c_s": c_s,
             "eps": eps,
             "low_prec": False,
-            "loop_only": loop_only,
         },
         "optimizer": {
             "lr": 0.001,
@@ -368,15 +207,11 @@ config = mlc.ConfigDict(
         },
         "model": {
             "_mask_trans": False,
-            "is_refine": is_refine,
-            "untied_structure_module": False,
             "input_embedder": {
                 "tf_dim": 22,
-                "msa_dim": 49,
                 "c_z": c_z,
                 "c_m": c_m,
                 "relpos_k": 32,
-                "mask_loop_type": masked_seq_weight,
             },
             "recycling_embedder": {
                 "c_z": c_z,
@@ -386,102 +221,23 @@ config = mlc.ConfigDict(
                 "no_bins": 15,
                 "inf": 1e8,
             },
-            "residue_emb": {
-                "c_emb": 1280,
-                "num_emb_feats": 1,
-                "usage": "cat",
-                "enabled": residue_emb_enabled,
-            },
-            "residue_attn": {
-                "c_emb": 64,
-                "enabled": residue_attn_enabled,
-            },
-            "template": {
-                "distogram": {
-                    "min_bin": 3.25,
-                    "max_bin": 50.75,
-                    "no_bins": 39,
-                },
-                "template_angle_embedder": {
-                    # DISCREPANCY: c_in is supposed to be 51.
-                    "c_in": 57,
-                    "c_out": c_m,
-                },
-                "template_pair_embedder": {
-                    "c_in": 88,
-                    "c_out": c_t,
-                },
-                "template_pair_stack": {
-                    "c_t": c_t,
-                    # DISCREPANCY: c_hidden_tri_att here is given in the supplement
-                    # as 64. In the code, it's 16.
-                    "c_hidden_tri_att": 16,
-                    "c_hidden_tri_mul": 64,
-                    "no_blocks": 2,
-                    "no_heads": 4,
-                    "pair_transition_n": 2,
-                    "dropout_rate": 0.25,
-                    "blocks_per_ckpt": blocks_per_ckpt,
-                    "inf": 1e9,
-                },
-                "template_pointwise_attention": {
-                    "c_t": c_t,
-                    "c_z": c_z,
-                    # DISCREPANCY: c_hidden here is given in the supplement as 64.
-                    # It's actually 16.
-                    "c_hidden": 16,
-                    "no_heads": 4,
-                    "inf": 1e5,  # 1e9,
-                },
-                "inf": 1e5,  # 1e9,
-                "eps": eps,  # 1e-6,
-                "enabled": templates_enabled,
-                "embed_angles": embed_template_torsion_angles,
-                "use_unit_vector": False,
-            },
-            "extra_msa": {
-                "extra_msa_embedder": {
-                    "c_in": 25,
-                    "c_out": c_e,
-                },
-                "extra_msa_stack": {
-                    "c_m": c_e,
-                    "c_z": c_z,
-                    "c_hidden_msa_att": 8,
-                    "c_hidden_opm": 32,
-                    "c_hidden_mul": 128,
-                    "c_hidden_pair_att": 32,
-                    "no_heads_msa": 8,
-                    "no_heads_pair": 4,
-                    "no_blocks": 4,
-                    "transition_n": 4,
-                    "msa_dropout": 0.15,
-                    "pair_dropout": 0.25,
-                    "clear_cache_between_blocks": True,
-                    "inf": 1e9,
-                    "eps": eps,  # 1e-10,
-                    "ckpt": blocks_per_ckpt is not None,
-                },
-                "enabled": True,
-            },
             "evoformer_stack": {
                 "c_m": c_m,
                 "c_z": c_z,
-                "c_hidden_msa_att": 32,
+                "c_hidden_seq_att": 32,
                 "c_hidden_opm": 32,
                 "c_hidden_mul": 128,
                 "c_hidden_pair_att": 32,
                 "c_s": c_s,
-                "no_heads_msa": 8,
+                "no_heads_seq": 8,
                 "no_heads_pair": 4,
                 "no_blocks": 48,
                 "transition_n": 4,
-                "msa_dropout": 0.15,
+                "seq_dropout": 0.15,
                 "pair_dropout": 0.25,
                 "blocks_per_ckpt": blocks_per_ckpt,
                 "clear_cache_between_blocks": False,
                 "inf": 1e9,
-                "eps": eps,  # 1e-10,
             },
             "structure_module": {
                 "c_s": c_s,
@@ -499,7 +255,6 @@ config = mlc.ConfigDict(
                 "trans_scale_factor": 10,
                 "epsilon": eps,  # 1e-12,
                 "inf": 1e5,
-                "mask_loop_type": masked_seq_weight,
             },
             "heads": {
                 "lddt": {
@@ -518,11 +273,6 @@ config = mlc.ConfigDict(
                     "no_bins": aux_distogram_bins,
                     "enabled": tm_enabled,
                     "weight": tm_weight,
-                },
-                "masked_msa": {
-                    "c_m": c_m,
-                    "c_out": 23,
-                    "weight": masked_msa_weight,
                 },
                 "experimentally_resolved": {
                     "c_s": c_s,
@@ -574,13 +324,9 @@ config = mlc.ConfigDict(
                 "eps": eps,  # 1e-10,
                 "weight": lddt_weight,
             },
-            "masked_msa": {
+            "seqs": {
                 "eps": eps,  # 1e-8,
-                "weight": masked_msa_weight,
-            },
-            "masked_seq": {
-                "eps": eps,  # 1e-8,
-                "weight": masked_seq_weight,
+                "weight": seqs_weight,
             },
             "supervised_chi": {
                 "chi_weight": 0.5,
@@ -604,7 +350,6 @@ config = mlc.ConfigDict(
                 "enabled": tm_enabled,
             },
             "eps": eps,
-            "loop_only": loop_only,
         },
         "ema": {"decay": 0.999},
     }

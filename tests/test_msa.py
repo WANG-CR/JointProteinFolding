@@ -15,7 +15,7 @@
 import torch
 import numpy as np
 import unittest
-from openfold.model.msa import (
+from openfold.model.seq_update import (
     MSARowAttentionWithPairBias,
     MSAColumnAttention,
     MSAColumnGlobalAttention,
