@@ -14,13 +14,8 @@ from openfold.model.evoformer import EvoformerStack
 from openfold.model.heads import AuxiliaryHeads
 import openfold.np.residue_constants as residue_constants
 from openfold.model.structure_module import StructureModule
-from openfold.utils.loss import (
-    compute_contact_ca,
-)
-from openfold.utils.tensor_utils import (
-    dict_multimap,
-    tensor_tree_map,
-)
+from openfold.utils.loss import compute_contact_ca
+from openfold.utils.tensor_utils import dict_multimap, tensor_tree_map
 
 
 class AlphaFold(nn.Module):
@@ -95,6 +90,7 @@ class AlphaFold(nn.Module):
         # m: [*, N, C_m]
         # z: [*, N, N, C_z]
         m, z = self.input_embedder(
+            #feats["target_feat"],
             feats["ss_feat"],
             feats["residue_index"],
             contact=contact,
