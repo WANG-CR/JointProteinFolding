@@ -89,7 +89,10 @@ def main(args):
 
     top2split = {}
     for top in all_tops:
-        if np.random.rand() <= args.test_ratio:
+        rand_ = np.random.rand()
+        if rand_ <= args.valid_ratio:
+            top2split[top] = 'valid'
+        elif rand_ <= (args.valid_ratio + args.test_ratio):
             top2split[top] = 'test'
         else:
             top2split[top] = 'train'
@@ -97,13 +100,15 @@ def main(args):
     logging.info(f"get {len(filenames)} files.")
     logging.info(f"get {len(top2split)} unique topologies")
     args.output_dir = args.output_dir + \
-                      f"_{args.max_len}_{args.seed}_{args.test_ratio}"
+                      f"_{args.max_len}_{args.seed}_{args.valid_ratio}_{args.test_ratio}"
     train_output_dir = args.output_dir + "_train"
+    valid_output_dir = args.output_dir + "_valid"
     test_output_dir = args.output_dir + "_test"
-    output_dirs = [train_output_dir, test_output_dir]
+    output_dirs = [train_output_dir, valid_output_dir, test_output_dir]
     split2output_dir = {
         'train': output_dirs[0],
-        'test': output_dirs[1],
+        'valid': output_dirs[1],
+        'test': output_dirs[2],
     }
 
     for output_dir in output_dirs:
@@ -171,7 +176,11 @@ if __name__ == '__main__':
         help="Path to model parameters."
     )
     parser.add_argument(
-        "--test_ratio", type=float, default=0.05,
+        "--valid_ratio", type=float, default=0.01,
+        help="Path to model parameters."
+    )
+    parser.add_argument(
+        "--test_ratio", type=float, default=0.04,
         help="Path to model parameters."
     )
     parser.add_argument(

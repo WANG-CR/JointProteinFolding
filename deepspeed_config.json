@@ -1,6 +1,6 @@
 {
   "fp16": {
-    "enabled": false,
+    "enabled": true,
     "min_loss_scale": 1
   },
   "amp": {
@@ -8,7 +8,7 @@
     "opt_level": "O2"
   },
   "bfloat16": {
-    "enabled": true
+    "enabled": false
   },
   "zero_optimization": {
     "stage": 2,

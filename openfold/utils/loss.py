@@ -13,17 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from functools import partial
 import logging
 import ml_collections
 import numpy as np
 import torch
 import torch.nn as nn
-from torch.distributions.bernoulli import Bernoulli
 from typing import Dict, Optional, Tuple
 
 from openfold.np import residue_constants
-from openfold.utils import feats
 from openfold.utils.rigid_utils import Rotation, Rigid
 from openfold.utils.tensor_utils import (
     tree_map,
@@ -47,32 +44,6 @@ def sigmoid_cross_entropy(logits, labels):
     log_not_p = torch.nn.functional.logsigmoid(-logits)
     loss = -labels * log_p - (1 - labels) * log_not_p
     return loss
-
-
-def torsion_angle_loss(
-    a,  # [*, N, 7, 2]
-    a_gt,  # [*, N, 7, 2]
-    a_alt_gt,  # [*, N, 7, 2]
-):
-    """Implements Algorithm 27 (torsionAngleLoss)
-    """
-    # [*, N, 7]
-    norm = torch.norm(a, dim=-1)
-
-    # [*, N, 7, 2]
-    a = a / norm.unsqueeze(-1)
-
-    # [*, N, 7]
-    diff_norm_gt = torch.norm(a - a_gt, dim=-1)
-    diff_norm_alt_gt = torch.norm(a - a_alt_gt, dim=-1)
-    min_diff = torch.minimum(diff_norm_gt ** 2, diff_norm_alt_gt ** 2)
-
-    # [*]
-    l_torsion = torch.mean(min_diff, dim=(-1, -2))
-    l_angle_norm = torch.mean(torch.abs(norm - 1), dim=(-1, -2))
-
-    an_weight = 0.02
-    return l_torsion + an_weight * l_angle_norm
 
 
 def compute_fape(
@@ -1707,6 +1678,12 @@ class AlphaFoldLoss(nn.Module):
             ),
         }
 
+        if self.config.tm.enabled:
+            loss_fns["tm"] = lambda: tm_loss(
+                logits=out["tm_logits"],
+                **{**batch, **out, **self.config.tm},
+            )
+
         cum_loss = 0.
         losses = {}
         for loss_name, loss_fn in loss_fns.items():
@@ -1730,7 +1707,7 @@ class AlphaFoldLoss(nn.Module):
 
         losses["loss"] = cum_loss.detach().clone()
 
-        if(not _return_breakdown):
+        if not _return_breakdown:
             return cum_loss
         
         return cum_loss, losses

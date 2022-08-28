@@ -304,12 +304,16 @@ class OpenFoldDataModule(pl.LightningDataModule):
         self.batch_seed = batch_seed
         self.train_epoch_len = train_epoch_len
 
-        if(self.train_data_dir is None and self.predict_data_dir is None):
+        if self.train_data_dir is None and self.predict_data_dir is None:
             raise ValueError(
                 'At least one of train_data_dir or predict_data_dir must be '
                 'specified'
             )
 
+        if self.ss_file is None:
+            raise ValueError(
+                'secondary structure data should be provided.'
+            )
         self.training_mode = self.train_data_dir is not None
 
 

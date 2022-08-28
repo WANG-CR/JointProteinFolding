@@ -1,6 +1,5 @@
 import logging
 logging.basicConfig(level=logging.WARNING)
-import os
 import copy
 import yaml
 import ml_collections as mlc
@@ -48,7 +47,6 @@ def model_config(
             logging.warning("The yaml config is empty!")
     else:
         if name == "initial_training":
-            # AF2 Suppl. Table 4, "initial training" setting
             pass
         else:
             raise ValueError("Invalid model name")
@@ -86,8 +84,6 @@ tm_weight = mlc.FieldReference(0.0, field_type=float)
 
 c_z = mlc.FieldReference(128, field_type=int)
 c_m = mlc.FieldReference(256, field_type=int)
-c_t = mlc.FieldReference(64, field_type=int)
-c_e = mlc.FieldReference(64, field_type=int)
 c_s = mlc.FieldReference(384, field_type=int)
 blocks_per_ckpt = mlc.FieldReference(None, field_type=int)
 chunk_size = mlc.FieldReference(4, field_type=int)
@@ -104,6 +100,7 @@ config = mlc.ConfigDict(
             "common": {
                 "feat": {
                     "aatype": [NUM_RES],
+                    "sstype": [NUM_RES],
                     "ss_feat": [NUM_RES, None],
                     "all_atom_mask": [NUM_RES, None],
                     "all_atom_positions": [NUM_RES, None, None],
@@ -191,8 +188,6 @@ config = mlc.ConfigDict(
             "chunk_size": chunk_size,
             "c_z": c_z,
             "c_m": c_m,
-            "c_t": c_t,
-            "c_e": c_e,
             "c_s": c_s,
             "eps": eps,
             "low_prec": False,
@@ -203,8 +198,8 @@ config = mlc.ConfigDict(
         },
         "scheduler": {
             "warmup_no_steps": 5000,
-            "start_decay_after_n_steps": 10000,
-            "decay_every_n_steps": 1000,
+            "start_decay_after_n_steps": 50000,
+            "decay_every_n_steps": 2000,
             "decay_factor": 0.95,
         },
         "model": {
@@ -281,6 +276,10 @@ config = mlc.ConfigDict(
                     "c_out": 37,
                     "weight": experimentally_resolved_weight,
                 },
+            },
+            "contact": {
+                "cutoff": 8,
+                "eps": eps,
             },
         },
         "relax": {
