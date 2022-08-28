@@ -1,18 +1,16 @@
 #! /bin/bash
-#SBATCH --cpus-per-task=12
-#SBATCH --mem=498G
-#SBATCH --gres=gpu:4
+#SBATCH --account=def-lcharlin
+#SBATCH --partition=compute_full_node
+#SBATCH --gpus-per-node=4
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=4
-#SBATCH --time=24:00:00
-#SBATCH --exclusive
-#SBATCH --output=/home/shichenc/scratch/cath_gen/output/slurm_log/default_v1.out
-#SBATCH --error=/home/shichenc/scratch/cath_gen/output/slurm_log/default_v1.err
-#SBATCH --qos=unkillable
+#SBATCH --time=1-00:00:00
+#SBATCH --output=/home/b/bengioy/shichenc/scratch/cath_gen/output/slurm_log/default_v1.out
+#SBATCH --error=/home/b/bengioy/shichenc/scratch/cath_gen/output/slurm_log/default_v1.err
 
 ENV_NAME=cath_gen
-module load cuda/11.4
-source activate $ENV_NAME
+module load cuda/11.2
+source activate $SCRATCH/envs/$ENV_NAME
 echo env done
 
 # 2. debug with 8 samples.
@@ -29,7 +27,7 @@ srun python train_cath.py $TRAIN_DIR $OUTPUT_DIR \
     --precision 16 --gpus 4 --log_every_n_steps 50 \
     --wandb true \
     --wandb_entity chenceshi \
-    --wandb_version n_v1 \
+    --wandb_version m_v1 \
     --wandb_project cath_gen \
     --deepspeed_config_path deepspeed_config.json \
     --train_epoch_len 2000 \

@@ -6,8 +6,8 @@
 #SBATCH --ntasks-per-node=4
 #SBATCH --time=3:00:00
 #SBATCH --exclusive
-#SBATCH --output=/home/shichenc/scratch/cath_gen/output/slurm_log/default_short_v2.out
-#SBATCH --error=/home/shichenc/scratch/cath_gen/output/slurm_log/default_short_v2.err
+#SBATCH --output=/home/shichenc/scratch/cath_gen/output/slurm_log/default_short_v1.out
+#SBATCH --error=/home/shichenc/scratch/cath_gen/output/slurm_log/default_short_v1.err
 #SBATCH --qos=unkillable
 
 ENV_NAME=cath_gen
@@ -29,7 +29,7 @@ srun python train_cath.py $TRAIN_DIR $OUTPUT_DIR \
     --precision 16 --gpus 4 --log_every_n_steps 50 \
     --wandb true \
     --wandb_entity chenceshi \
-    --wandb_version b_short_v2 \
+    --wandb_version b_short_v1 \
     --wandb_project cath_gen \
     --deepspeed_config_path deepspeed_config.json \
     --train_epoch_len 2000 \

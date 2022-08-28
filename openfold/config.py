@@ -181,7 +181,7 @@ config = mlc.ConfigDict(
             "data_module": {
                 "data_loaders": {
                     "batch_size": 1,
-                    "num_workers": 10,
+                    "num_workers": 8,
                 },
             },
         },
