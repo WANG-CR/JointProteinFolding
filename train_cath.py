@@ -3,39 +3,29 @@ import logging
 logging.basicConfig(level=logging.INFO)
 import os
 
-import numpy as np
+import torch
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks.lr_monitor import LearningRateMonitor
 from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.plugins.training_type import DeepSpeedPlugin, DDPPlugin
-from pytorch_lightning.plugins.environments import SLURMEnvironment
-import torch
-import debugger
 
 from openfold.config import model_config
 from openfold.data.data_modules import OpenFoldDataModule
 from openfold.model.model import AlphaFold
 from openfold.np import residue_constants
 from openfold.utils.argparse import remove_arguments
-from openfold.utils.callbacks import (
-    EarlyStoppingVerbose,
-)
+from openfold.utils.callbacks import EarlyStoppingVerbose
 from openfold.utils.exponential_moving_average import ExponentialMovingAverage
 from openfold.utils.loss import AlphaFoldLoss, lddt_ca, compute_drmsd
 from openfold.utils.lr_schedulers import AlphaFoldLRScheduler
 from openfold.utils.seed import seed_everything
 from openfold.utils.superimposition import superimpose
 from openfold.utils.tensor_utils import tensor_tree_map
-from openfold.utils.validation_metrics import (
-    gdt_ts,
-    gdt_ha,
-)
-from scripts.zero_to_fp32 import (
-    get_fp32_state_dict_from_zero_checkpoint
-)
+from openfold.utils.validation_metrics import gdt_ts, gdt_ha
+from openfold.utils.zero_to_fp32 import get_fp32_state_dict_from_zero_checkpoint
 
-from openfold.utils.logger import PerformanceLoggingCallback
+import debugger
 
 
 class OpenFoldWrapper(pl.LightningModule):
