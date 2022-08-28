@@ -1,3 +1,5 @@
+from functools import partial
+
 import torch
 
 from openfold.data import data_transforms
@@ -89,9 +91,7 @@ def process_tensors_from_config(tensors, common_cfg, mode_cfg):
         d["ensemble_index"] = i
         return fn(d)
 
-    nonensembled = nonensembled_transform_fns(
-        mode_cfg,
-    )
+    nonensembled = nonensembled_transform_fns(mode_cfg)
 
     tensors = compose(nonensembled)(tensors)
 

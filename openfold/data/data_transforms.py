@@ -57,7 +57,6 @@ def curry1(f):
     return fc
 
 
-@curry1
 def make_seq_mask(protein):
     protein["seq_mask"] = torch.ones(
         protein["aatype"].shape, dtype=torch.float32
@@ -65,7 +64,6 @@ def make_seq_mask(protein):
     return protein
 
 
-@curry1
 def make_seq_feat(protein):
     aatype_1hot = make_one_hot(protein["aatype"], 21)
     sstype_1hot = make_one_hot(protein["sstype"], 3)
@@ -90,6 +88,7 @@ def squeeze_features(protein):
         "seq_length",
         "sequence",
         "superfamily",
+        "resolution",
         "between_segment_residues",
         "residue_index",
     ]:

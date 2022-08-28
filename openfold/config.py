@@ -131,7 +131,9 @@ config = mlc.ConfigDict(
                     "rigidgroups_gt_exists": [NUM_RES, None],
                     "rigidgroups_gt_frames": [NUM_RES, None, None, None],
                     "seq_length": [],
+                    "resolution": [],
                     "seq_mask": [NUM_RES],
+                    "target_feat": [NUM_RES, None],
                     "use_clamped_fape": [],
                 },
                 "max_recycling_iters": 3,
@@ -150,6 +152,7 @@ config = mlc.ConfigDict(
                 "supervised_features": [
                     "all_atom_mask",
                     "all_atom_positions",
+                    "resolution",
                     "use_clamped_fape",
                 ],
             },
@@ -318,7 +321,7 @@ config = mlc.ConfigDict(
                 "weight": fape_weight,
             },
             "lddt": {
-                "min_resolution": 0.1,
+                "min_resolution": 0.0,
                 "max_resolution": 3.0,
                 "cutoff": 15.0,
                 "no_bins": 50,
