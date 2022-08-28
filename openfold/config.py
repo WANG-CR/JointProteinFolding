@@ -206,7 +206,7 @@ config = mlc.ConfigDict(
             "decay_factor": 0.95,
         },
         "model": {
-            "_mask_trans": False,
+            "_mask_trans": True,
             "input_embedder": {
                 "tf_dim": 3,
                 "c_z": c_z,
