@@ -281,7 +281,7 @@ config = mlc.ConfigDict(
                 },
             },
             "contact": {
-                "cutoff": 8,
+                "cutoff": 8.0,
                 "eps": eps,
             },
         },

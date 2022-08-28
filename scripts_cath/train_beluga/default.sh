@@ -32,4 +32,4 @@ srun python train_cath.py $TRAIN_DIR $OUTPUT_DIR \
     --wandb_version b_v1 \
     --wandb_project cath_gen \
     --deepspeed_config_path deepspeed_config.json \
-    --train_epoch_len 10000 \
+    --train_epoch_len 2000 \
