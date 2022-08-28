@@ -1,3 +1,6 @@
+import logging
+logging.basicConfig(level=logging.WARNING)
+
 import os
 import copy
 import pickle
@@ -10,9 +13,6 @@ import ml_collections as mlc
 
 from openfold.data import data_pipeline, feature_pipeline
 from openfold.utils.tensor_utils import tensor_tree_map, dict_multimap
-
-import logging
-logging.basicConfig(level=logging.WARNING)
 
 
 class OpenFoldSingleDataset(torch.utils.data.Dataset):

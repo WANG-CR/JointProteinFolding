@@ -1,6 +1,6 @@
 #!/bin/bash
 
-ENV_NAME=biofold
+ENV_NAME=cath_gen
 
 # Grab conda-only packages
 conda update -qy conda

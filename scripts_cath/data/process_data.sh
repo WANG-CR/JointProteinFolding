@@ -12,5 +12,5 @@ echo env done
 python scripts_cath/data/process_data.py \
     /home/shichenc/scratch/structure_datasets/cath/raw/dompdb \
     /home/shichenc/scratch/structure_datasets/cath/processed/top_split \
-    /home/shichenc/scratch/structure_datasets/cath/raw/ss_info_topo_31883.pkl \
+    /home/shichenc/scratch/structure_datasets/cath/raw/ss_annotation_31885.pkl \
 

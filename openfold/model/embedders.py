@@ -1,18 +1,3 @@
-# Copyright 2021 AlQuraishi Laboratory
-# Copyright 2021 DeepMind Technologies Limited
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#      http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -20,7 +5,6 @@ from typing import Optional, Tuple
 
 from openfold.model.primitives import Linear, LayerNorm
 from openfold.utils.tensor_utils import one_hot
-from openfold.np.residue_constants import restype_num
 
 class InputEmbedder(nn.Module):
     """
@@ -124,87 +108,6 @@ class InputEmbedder(nn.Module):
         return tf_m, pair_emb
 
 
-class Ca_Aware_Embedder(nn.Module):
-    """
-    Embeds the output structure of a structure block to bias the attention map.
-
-    Adapted from Algorithm 32.
-    """
-
-    def __init__(
-        self,
-        c_z: int,
-        min_bin: float,
-        max_bin: float,
-        no_bins: int,
-        inf: float = 1e8,
-        **kwargs,
-    ):
-        """
-        Args:
-            c_z:
-                Pair embedding channel dimension
-            min_bin:
-                Smallest distogram bin (Angstroms)
-            max_bin:
-                Largest distogram bin (Angstroms)
-            no_bins:
-                Number of distogram bins
-        """
-        super(Ca_Aware_Embedder, self).__init__()
-
-        self.c_z = c_z
-        self.min_bin = min_bin
-        self.max_bin = max_bin
-        self.no_bins = no_bins
-        self.inf = inf
-
-        self.linear = Linear(self.no_bins, self.c_z)
-
-    def forward(
-        self,
-        x: torch.Tensor,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """
-        Args:
-            x:
-                [*, N_res, 3] predicted C_alpha coordinates
-        Returns:
-            z:
-                [*, N_res, N_res, C_z] pair embedding update
-        """
-        bins = torch.linspace(
-            self.min_bin,
-            self.max_bin,
-            self.no_bins,
-            dtype=x.dtype,
-            device=x.device,
-            requires_grad=False,
-        )
-
-        # This squared method might become problematic in FP16 mode.
-        # I'm using it because my homegrown method had a stubborn discrepancy I
-        # couldn't find in time.
-        squared_bins = bins ** 2
-        upper = torch.cat(
-            [squared_bins[1:], squared_bins.new_tensor([self.inf])], dim=-1
-        )
-        
-        # [*, N_res, N_res, 1]
-        d = torch.sum(
-            (x[..., None, :] - x[..., None, :, :]) ** 2, dim=-1, keepdims=True
-        )
-
-        # [*, N, N, no_bins]
-        d = ((d > squared_bins) * (d < upper)).type(x.dtype)
-
-        # [*, N, N, C_z]
-        d = self.linear(d)
-        z_update = d
-
-        return z_update
-
-
 class RecyclingEmbedder(nn.Module):
     """
     Embeds the output of an iteration of the model for recycling.
@@ -225,7 +128,7 @@ class RecyclingEmbedder(nn.Module):
         """
         Args:
             c_m:
-                MSA channel dimension
+                Seq channel dimension
             c_z:
                 Pair embedding channel dimension
             min_bin:
@@ -257,7 +160,7 @@ class RecyclingEmbedder(nn.Module):
         """
         Args:
             m:
-                First row of the MSA embedding. [*, N_res, C_m]
+                Sequence embedding. [*, N_res, C_m]
             z:
                 [*, N_res, N_res, C_z] pair embedding
             x:

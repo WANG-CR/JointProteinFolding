@@ -883,6 +883,8 @@ restypes_with_x = restypes + ["X"]
 restype_order_with_x = {restype: i for i, restype in enumerate(restypes_with_x)}
 second_structures = ["H", "E", "C"]
 second_structures_order = {ss: i for i, ss in enumerate(second_structures)}
+sstype_num = len(second_structures)  # := 3.
+
 
 def ss_to_onehot(
     ss: str, mapping: Mapping[str, int]

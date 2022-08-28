@@ -73,12 +73,14 @@ def model_config(
 
 
 # loss weight
-distogram_weight = mlc.FieldReference(0.0, field_type=float)
-experimentally_resolved_weight = mlc.FieldReference(0.0, field_type=float)
 fape_weight = mlc.FieldReference(1.0, field_type=float)
-lddt_weight = mlc.FieldReference(0.01, field_type=float)
 seqs_weight = mlc.FieldReference(1.0, field_type=float)
 supervised_chi_weight = mlc.FieldReference(1.0, field_type=float)
+lddt_weight = mlc.FieldReference(0.01, field_type=float)
+
+## not used in cath_gen
+distogram_weight = mlc.FieldReference(0.0, field_type=float)
+experimentally_resolved_weight = mlc.FieldReference(0.0, field_type=float)
 violation_weight = mlc.FieldReference(0.0, field_type=float)
 tm_weight = mlc.FieldReference(0.0, field_type=float)
 
@@ -208,7 +210,7 @@ config = mlc.ConfigDict(
         "model": {
             "_mask_trans": False,
             "input_embedder": {
-                "tf_dim": 22,
+                "tf_dim": 3,
                 "c_z": c_z,
                 "c_m": c_m,
                 "relpos_k": 32,

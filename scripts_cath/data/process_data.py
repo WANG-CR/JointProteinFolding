@@ -1,4 +1,7 @@
 #coding: utf-8
+import logging
+logging.basicConfig(level=logging.INFO)
+
 import os
 import argparse
 import numpy as np
@@ -11,14 +14,17 @@ from openfold.utils.seed import seed_everything
 from openfold.np import protein, residue_constants
 import debugger
 
-import logging
-logging.basicConfig(level=logging.INFO)
-
 """ 
 python scripts_cath/data/process_data.py \
     /home/shichenc/scratch/structure_datasets/cath/raw/dompdb \
     /home/shichenc/scratch/structure_datasets/cath/processed/top_split \
-    /home/shichenc/scratch/structure_datasets/cath/raw/ss_info_topo_31883.pkl \
+    /home/shichenc/scratch/structure_datasets/cath/raw/ss_annotation_31885.pkl \
+
+INFO:root:get 31885 files.
+INFO:root:get 1470 unique topologies
+INFO:root:859 data is excluded.
+large: 116 | not the same: 599
+parse error: 144 | remaining: 31026
 """
 
 def is_same_seq(prot: protein.Protein, seq, fname):
