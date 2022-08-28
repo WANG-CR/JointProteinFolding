@@ -24,7 +24,7 @@ python train_cath.py $TRAIN_DIR $OUTPUT_DIR \
     --deepspeed_config_path deepspeed_config.json \
     --train_epoch_len 100 \
 
-srun python train_cath.py $TRAIN_DIR $OUTPUT_DIR \
+srun python train_cath.py $TEST_DIR $OUTPUT_DIR \
     --ss_file $SCRATCH/structure_datasets/cath/raw/ss_annotation_31885.pkl \
     --val_data_dir $VALID_DIR \
     --seed 2022 \
@@ -35,4 +35,4 @@ srun python train_cath.py $TRAIN_DIR $OUTPUT_DIR \
     --wandb_version debug \
     --wandb_project cath_gen \
     --deepspeed_config_path deepspeed_config.json \
-    --train_epoch_len 100 \
+    --train_epoch_len 1000 \

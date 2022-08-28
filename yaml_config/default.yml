@@ -4,6 +4,11 @@ model:
   structure_module:
     no_blocks: 8
 
+data:
+  data_module:
+    data_loaders:
+      num_workers: 0
+
 optimizer:
   lr: 0.001
 
