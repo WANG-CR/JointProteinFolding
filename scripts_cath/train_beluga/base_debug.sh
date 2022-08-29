@@ -6,30 +6,30 @@
 #SBATCH --ntasks-per-node=4
 #SBATCH --time=3:00:00
 #SBATCH --exclusive
-#SBATCH --output=/home/shichenc/scratch/cath_gen/output/slurm_log/base_debug_v1.out
-#SBATCH --error=/home/shichenc/scratch/cath_gen/output/slurm_log/base_debug_v1.err
+#SBATCH --output=/home/shichenc/scratch/antibody/alphafold/output/slurm_log/base_debug_v1.out
+#SBATCH --error=/home/shichenc/scratch/antibody/alphafold/slurm_log/base_debug_v1.err
 #SBATCH --qos=unkillable
 
-ENV_NAME=cath_gen
+ENV_NAME=biofold
 module load cuda/11.4
 source activate $ENV_NAME
 echo env done
 
 # 2. debug with 8 samples.
-TRAIN_DIR=$SCRATCH/structure_datasets/cath/processed/top_split_512_2023_0.01_0.04_train
-VALID_DIR=$SCRATCH/structure_datasets/cath/processed/top_split_512_2023_0.01_0.04_valid
-TEST_DIR=$SCRATCH/structure_datasets/cath/processed/top_split_512_2023_0.01_0.04_test
-OUTPUT_DIR=$SCRATCH/cath_gen/output
+WORK_DIR=$SCRATCH/antibody/alphafold
+DATA_DIR=$SCRATCH/database
+TRAIN_DIR=$DATA_DIR/database/pdb/20220319_99_True_All__4_train
+VALID_DIR=$DATA_DIR/database/pdb/20220319_99_True_All__4_valid
+OUTPUT_DIR=$WORK_DIR/output
 
-srun python train_cath.py $TRAIN_DIR $OUTPUT_DIR \
-    --ss_file $SCRATCH/structure_datasets/cath/raw/ss_annotation_31885.pkl \
+srun python train_antibody.py $TRAIN_DIR $OUTPUT_DIR \
     --val_data_dir $VALID_DIR \
     --seed 2022 \
     --yaml_config_preset yaml_config/base.yml \
     --precision 16 --gpus 4 --log_every_n_steps 10 \
     --wandb true \
-    --wandb_entity chenceshi \
-    --wandb_version b_debug_v1 \
+    --wandb_entity chuanrui \
+    --wandb_version antibody2 \
     --wandb_project cath_gen \
     --deepspeed_config_path deepspeed_config.json \
     --train_epoch_len 1000 \

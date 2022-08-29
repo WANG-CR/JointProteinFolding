@@ -16,6 +16,7 @@ import openfold.np.residue_constants as residue_constants
 from openfold.model.structure_module import StructureModule
 from openfold.utils.loss import compute_contact_ca
 from openfold.utils.tensor_utils import dict_multimap, tensor_tree_map
+from openfold.utils.rigid_utils import Rigid
 
 
 class AlphaFold(nn.Module):
@@ -78,22 +79,14 @@ class AlphaFold(nn.Module):
         seq_mask = feats["seq_mask"]
         pair_mask = seq_mask[..., None] * seq_mask[..., None, :]
 
-        # Calculate contact
-        assert "all_atom_positions" in feats
-        contact = compute_contact_ca(
-            feats["all_atom_positions"],
-            feats["all_atom_mask"],
-            **self.config["contact"],
-        )
-
         # Initialize the seq and pair representations
         # m: [*, N, C_m]
         # z: [*, N, N, C_z]
         m, z = self.input_embedder(
-            #feats["target_feat"],
-            feats["ss_feat"],
+            feats["target_feat"],
             feats["residue_index"],
-            contact=contact,
+            feats["loop_mask"],
+            initial_seqs = initial_seqs,
         )
 
         # Initialize the recycling embeddings, if needs be
@@ -164,6 +157,7 @@ class AlphaFold(nn.Module):
         outputs["single"] = s
 
         # Predict 3D structure
+        gt_angles = feats["torsion_angles_sin_cos"]
 
         outputs["sm"] = self.structure_module(
             s,
@@ -172,6 +166,8 @@ class AlphaFold(nn.Module):
             mask=feats["seq_mask"].to(dtype=s.dtype),
             initial_rigids=initial_rigids,
             initial_seqs=initial_seqs,
+            loop_mask=feats["loop_mask"],
+            gt_angles=gt_angles,
         )
 
         outputs["final_atom_positions"] = atom14_to_atom37(
@@ -246,6 +242,26 @@ class AlphaFold(nn.Module):
             # Select the features for the current recycling cycle
             fetch_cur_batch = lambda t: t[..., cycle_no]
             feats = tensor_tree_map(fetch_cur_batch, batch)
+
+            if "backbone_rigid_tensor_7s" in feats:
+                gt_aff_7s = feats["backbone_rigid_tensor_7s"] # [*, N, 7]
+                gt_aff_7s[..., 4:] = gt_aff_7s[..., 4:] * (
+                    1.0 / self.structure_module.trans_scale_factor
+                )
+                identity_rigid_7s = torch.zeros_like(gt_aff_7s)
+                identity_rigid_7s[..., 0] = 1
+                loop_mask_expand = feats["loop_mask"][..., None].expand_as(gt_aff_7s) # [*, N, 7]
+                # only predict the loop
+                initial_rigids = loop_mask_expand * identity_rigid_7s + (1 - loop_mask_expand) * gt_aff_7s
+                initial_rigids = Rigid.from_tensor_7(initial_rigids)
+                if x_prev is None:
+                    # [*, N, 37, 3]
+                    x_prev = feats["all_atom_positions"]
+                    x_prev_zero = torch.zeros_like(x_prev)
+                    loop_mask_expand = feats["loop_mask"][..., None, None].expand_as(x_prev) # [*, N, 37, 3]
+                    x_prev = loop_mask_expand * x_prev_zero + (1 - loop_mask_expand) * x_prev
+            else:
+                initial_rigids = None
 
             # Enable grad iff we're training and it's the final recycling layer
             is_final_iter = cycle_no == (num_iters - 1)

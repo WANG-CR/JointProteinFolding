@@ -108,8 +108,9 @@ def make_pdb_features(
 
 class DataPipeline:
     """Assembles input features."""
-    def __init__(self, ss_dict):
+    def __init__(self, ss_dict, is_antibody):
         self.ss_dict = ss_dict
+        self.is_antibody = is_antibody
 
     def process_fasta(
         self,
@@ -158,7 +159,10 @@ class DataPipeline:
         with open(pdb_path, 'r') as f:
             pdb_str = f.read()
 
-        protein_object = protein.from_pdb_string(pdb_str, chain_id)
+        if self.is_antibody:
+            protein_object = protein.from_pdb_string_antibody(pdb_str, chain_id)
+        else:
+            protein_object = protein.from_pdb_string(pdb_str, chain_id)
         ss = self.ss_dict[tag]
         description = os.path.splitext(os.path.basename(pdb_path))[0].upper()
         pdb_feats = make_pdb_features(

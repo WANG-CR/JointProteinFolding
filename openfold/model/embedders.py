@@ -31,6 +31,8 @@ class InputEmbedder(nn.Module):
                 sequence embedding dimension
             relpos_k:
                 Window size used in relative positional encoding
+            mask_loop_type:
+                mask whole loop region/certain loop region/none mask
         """
         super(InputEmbedder, self).__init__()
 
@@ -38,13 +40,9 @@ class InputEmbedder(nn.Module):
 
         self.c_z = c_z
         self.c_m = c_m
-
         self.linear_tf_z_i = Linear(tf_dim, c_z)
         self.linear_tf_z_j = Linear(tf_dim, c_z)
         self.linear_tf_m = Linear(tf_dim, c_m)
-
-        # contact map embedding
-        self.linear_contact = Linear(2, c_z)
 
         # RPE stuff
         self.relpos_k = relpos_k
@@ -72,23 +70,35 @@ class InputEmbedder(nn.Module):
         self,
         tf: torch.Tensor,
         ri: torch.Tensor,
-        contact: torch.Tensor,
+        loop_mask: torch.Tensor, 
+        initial_seqs: Optional[torch.Tensor],
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Args:
             tf:
-                "target_feat" features of shape [*, N_res, tf_dim]
+                "target_feat" features of shape [*, N_res, 21]
             ri:
                 "residue_index" features of shape [*, N_res]
-            contact:
-                "contact map" features of shape [*, N_res, N_res]
+            loop_mask:
+                "loop_mask" features of shape [*, N_res]
 
         Returns:
-            seq_emb:
-                [*, N_res, C_m] sequence embedding
+            tf_m:
+                "sequence embedding" features of [*, N_res, C_m] 
             pair_emb:
-                [*, N_res, N_res, C_z] pair embedding
+                "pair embedding" features [*, N_res, N_res, C_z] 
         """
+        # mask loop type for loop design
+        if initial_seqs is None:
+            seq_types = torch.zeros_like(tf)
+            seq_types[..., -1] = 1.0
+        else:
+            #initial_seqs shape [*, N, 21]
+            seq_types = initial_seqs
+
+        loop_mask_expand = loop_mask[..., None].expand_as(seq_types)
+        tf = loop_mask_expand * seq_types + (1 - loop_mask_expand) * tf
+
         # [*, N_res, c_z]
         tf_emb_i = self.linear_tf_z_i(tf)
         tf_emb_j = self.linear_tf_z_j(tf)
@@ -99,11 +109,7 @@ class InputEmbedder(nn.Module):
         # [*, N_res, N_res, c_z]
         pair_emb = tf_emb_i[..., None, :] + tf_emb_j[..., None, :, :]
         pair_emb = pair_emb + self.relpos(ri.type(pair_emb.dtype))
-        contact_oh = F.one_hot(
-            contact,
-            num_classes=2,
-        ).type(pair_emb.dtype)
-        pair_emb = pair_emb + self.linear_contact(contact_oh)
+        pair_emb = pair_emb
 
         return tf_m, pair_emb
 

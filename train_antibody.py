@@ -335,10 +335,6 @@ if __name__ == "__main__":
         )
     )
     parser.add_argument(
-        "--ss_file", type=str, default=None,
-        help="Path of the secondary structure data"
-    )
-    parser.add_argument(
         "--val_data_dir", type=str, default=None,
         help="Directory containing validation mmCIF files"
     )

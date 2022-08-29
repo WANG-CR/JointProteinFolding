@@ -45,6 +45,11 @@ class Protein:
     # value.
     b_factors: np.ndarray  # [num_res, num_atom_type]
 
+    # A numebr in {0,1,2,3,4,5,6} indicating whether a residue is within a CDR loop
+    # Currently only useful when modeling antibodies
+    # CDR H1/2/3: 1, 2, 3        CDR L1/2/3: 4, 5, 6    None: 0
+    loop_index: np.ndarray  # [num_res]
+
     def __post_init__(self):
         if len(np.unique(self.chain_index)) > PDB_MAX_CHAINS:
             raise ValueError(
@@ -131,6 +136,115 @@ def from_pdb_string(pdb_str: str, chain_id: Optional[str] = None) -> Protein:
         b_factors=np.array(b_factors),
     )
 
+def from_pdb_string_antibody(pdb_str: str, chain_id: Optional[str] = None) -> Protein:
+    """Takes a PDB string and constructs a Antibody Protein object.
+
+    WARNING: All non-standard residue types will be converted into UNK. All
+        non-standard atoms will be ignored.
+
+    Args:
+        pdb_str: The contents of the pdb file
+        chain_id: If None, then the pdb file must contain a single chain (which
+        will be parsed). If chain_id is specified (e.g. A), then only that chain
+        is parsed.
+
+    Returns:
+        A new `Protein` parsed from the pdb contents.
+    """
+    pdb_fh = io.StringIO(pdb_str)
+    parser = PDBParser(QUIET=True)
+    structure = parser.get_structure("none", pdb_fh)
+    models = list(structure.get_models())
+    if len(models) != 1:
+        raise ValueError(
+            f"Only single model PDBs are supported. Found {len(models)} models."
+        )
+    model = models[0]
+
+    atom_positions = []
+    aatype = []
+    atom_mask = []
+    residue_index = []
+    chain_ids = []
+    b_factors = []
+
+    # define constants of 6 cdr loops
+    # now do not add 2 anchor nodes at each end
+    # https://www.researchgate.net/figure/CDR-definitions-in-Chothia-numbering_tbl1_337735681
+    loop_index = []
+    CDR_H1_RANGE_WITH_ANCHOR = (26, 32) # 1
+    CDR_H2_RANGE_WITH_ANCHOR = (52, 56) # 2
+    CDR_H3_RANGE_WITH_ANCHOR = (95, 102) # 3
+    CDR_L1_RANGE_WITH_ANCHOR = (24, 34) # 4
+    CDR_L2_RANGE_WITH_ANCHOR = (50, 56) # 5
+    CDR_L3_RANGE_WITH_ANCHOR = (89, 97) # 6
+    def is_in_range(x, range_slice):
+        return x >= range_slice[0] and x <= range_slice[1]
+
+    for chain in model:
+        insertion_code_offset = 0
+        if chain_id is not None and chain.id != chain_id:
+            continue
+        for res in chain:
+            loop_index_ = 0
+            if chain.id == 'H':
+                if is_in_range(res.id[1], CDR_H1_RANGE_WITH_ANCHOR):
+                    loop_index_ = 1
+                elif is_in_range(res.id[1], CDR_H2_RANGE_WITH_ANCHOR):
+                    loop_index_ = 2
+                elif is_in_range(res.id[1], CDR_H3_RANGE_WITH_ANCHOR):
+                    loop_index_ = 3
+
+            elif chain.id == 'L':
+                if is_in_range(res.id[1], CDR_L1_RANGE_WITH_ANCHOR):
+                    loop_index_ = 4
+                elif is_in_range(res.id[1], CDR_L2_RANGE_WITH_ANCHOR):
+                    loop_index_ = 5
+                elif is_in_range(res.id[1], CDR_L3_RANGE_WITH_ANCHOR):
+                    loop_index_ = 6
+
+            if res.id[2] != ' ':
+                insertion_code_offset += 1
+            res_shortname = residue_constants.restype_3to1.get(res.resname, 'X')
+            restype_idx = residue_constants.restype_order.get(
+                    res_shortname, residue_constants.restype_num)
+            pos = np.zeros((residue_constants.atom_type_num, 3))
+            mask = np.zeros((residue_constants.atom_type_num,))
+            res_b_factors = np.zeros((residue_constants.atom_type_num,))
+            for atom in res:
+                if atom.name not in residue_constants.atom_types:
+                    continue
+                pos[residue_constants.atom_order[atom.name]] = atom.coord
+                mask[residue_constants.atom_order[atom.name]] = 1.
+                res_b_factors[residue_constants.atom_order[atom.name]] = atom.bfactor
+            if np.sum(mask) < 0.5:
+                # If no known atom positions are reported for the residue then skip it.
+                continue
+            aatype.append(restype_idx)
+            atom_positions.append(pos)
+            atom_mask.append(mask)
+            residue_index.append(res.id[1]+insertion_code_offset)
+            chain_ids.append(chain.id)
+            b_factors.append(res_b_factors)
+            loop_index.append(loop_index_)
+
+    # Chain IDs are usually characters so map these to ints.
+    chain_ids = np.array(chain_ids)
+    _, idx = np.unique(chain_ids, return_index=True)
+    unique_chain_ids = chain_ids[np.sort(idx)]
+    
+    chain_id_mapping = {cid: n for n, cid in enumerate(unique_chain_ids)}
+    chain_index = np.array([chain_id_mapping[cid] for cid in chain_ids])
+
+    return Protein(
+        atom_positions=np.array(atom_positions),
+        atom_mask=np.array(atom_mask),
+        aatype=np.array(aatype),
+        residue_index=np.array(residue_index),
+        chain_index=chain_index,
+        b_factors=np.array(b_factors),
+        loop_index = np.array(loop_index),
+    )
 
 def _chain_end(atom_index, end_resname, chain_name, residue_index) -> str:
     chain_end = 'TER'
@@ -244,6 +358,7 @@ def from_prediction(
     result: ModelOutput,
     b_factors: Optional[np.ndarray] = None,
     chain_index: Optional[np.ndarray] = None,
+    loop_index: Optional[np.ndarray] = None,
 ) -> Protein:
     """Assembles a protein from a prediction.
 
@@ -259,6 +374,8 @@ def from_prediction(
         b_factors = np.zeros_like(result["final_atom_mask"])
     if chain_index is None:
         chain_index = np.zeros_like(features["aatype"])
+    if loop_index is None:
+        loop_index = np.zeros_like(features["aatype"])
     if "final_aatype" in result:
         aatype = result["final_aatype"]
     else:
@@ -272,4 +389,5 @@ def from_prediction(
         residue_index=features["residue_index"] + 1,
         chain_index=chain_index,
         b_factors=b_factors,
+        loop_index=loop_index,
     )

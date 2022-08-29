@@ -22,6 +22,7 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
         config: mlc.ConfigDict,
         mode: str = "train", 
         output_raw: bool = False,
+        is_antibody: bool = False,
     ):
         """
             Args:
@@ -39,6 +40,7 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
         self.config = config
         self.mode = mode
         self.output_raw = output_raw
+        self.is_antibody = is_antibody
 
         valid_modes = ["train", "eval", "predict"]
         if mode not in valid_modes:
@@ -58,7 +60,7 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
         for ss in second_structure_data:
             self.ss_dict[ss['tag']] = ss['ss3']
 
-        self.data_pipeline = data_pipeline.DataPipeline(self.ss_dict)
+        self.data_pipeline = data_pipeline.DataPipeline(self.ss_dict, self.is_antibody)
         if not self.output_raw:
             self.feature_pipeline = feature_pipeline.FeaturePipeline(config)
 
@@ -72,6 +74,7 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
         name = self.idx_to_chain_id(idx)
 
         if(self.mode == 'train' or self.mode == 'eval'):
+            # chain_id = name[4] is specific for CATH file
             chain_id = name[4]
             path = os.path.join(self.data_dir, name)
 
