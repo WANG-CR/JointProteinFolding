@@ -19,12 +19,29 @@ python scripts_cath/data/process_data.py \
     /home/shichenc/scratch/structure_datasets/cath/raw/dompdb \
     /home/shichenc/scratch/structure_datasets/cath/processed/top_split \
     /home/shichenc/scratch/structure_datasets/cath/raw/ss_annotation_31885.pkl \
-
+        
+# before debug
 INFO:root:get 31885 files.
 INFO:root:get 1470 unique topologies
 INFO:root:859 data is excluded.
 large: 116 | not the same: 599
 parse error: 144 | remaining: 31026
+
+# after debug
+WARNING:root:get 31885 second structure data
+WARNING:root:remove bad pdbs: 1alo006, found chain:
+WARNING:root:remove bad pdbs: 1baa001, found chain:
+WARNING:root:remove bad pdbs: 1bdp001, found chain:
+WARNING:root:remove bad pdbs: 1bdp002, found chain:
+WARNING:root:remove bad pdbs: 1gep001, found chain:
+WARNING:root:remove bad pdbs: 1sil000, found chain:
+WARNING:root:remove bad pdbs: 1tbs002, found chain:
+WARNING:root:remove bad pdbs: 2mt2000, found chain:
+INFO:root:get 31877 files.
+INFO:root:get 1469 unique topologies
+INFO:root:859 data is excluded.
+large: 116 | not the same: 599
+parse error: 144 | remaining: 31018
 """
 
 def is_same_seq(prot: protein.Protein, seq, fname):
@@ -54,7 +71,9 @@ def do(fname, src_path, tgt_path, seq, max_len):
     with open(src_path, 'r') as f:
         pdb_str = f.read()
     try:
-        protein_object = protein.from_pdb_string(pdb_str)
+        chain_id = fname[4]
+        protein_object = protein.from_pdb_string(pdb_str, chain_id)
+        assert len(protein_object.atom_positions) > 0
     except ValueError as e:
         # logging.warning(
         #     f"fail to parse {fname}\n"
@@ -78,6 +97,12 @@ def main(args):
         second_structure_data = pickle.load(fin)
     logging.warning(f"get {len(second_structure_data)} second structure data")
     for ss_ in second_structure_data:
+        tag_ = ss_['tag']
+        chain_ = ss_['chain']
+        assert len(set(chain_)) == 1
+        if chain_[0] != tag_[4]:
+            logging.warning(f"remove bad pdbs: {tag_}, found chain: {chain_}")
+            continue
         tag2seq[ss_['tag']] = ss_['sequence']
         tag2top[ss_['tag']] = ss_['topology']
 

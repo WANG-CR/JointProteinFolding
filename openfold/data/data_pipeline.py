@@ -1,12 +1,12 @@
+import logging
+logging.basicConfig(level=logging.WARNING)
+
 import os
 import numpy as np
 from typing import Mapping, Optional, Sequence, Any
 
 from openfold.data import parsers
 from openfold.np import residue_constants, protein
-
-import logging
-logging.basicConfig(level=logging.WARNING)
 
 FeatureDict = Mapping[str, np.ndarray]
 
@@ -40,7 +40,6 @@ def make_sequence_features(
     features["domain_name"] = np.array(
         [description.encode("utf-8")], dtype=np.object_
     )
-    logging.warning(f"current pdb: {description}")
     features["residue_index"] = np.array(range(num_res), dtype=np.int32)
     if chain_index is not None:
         chain_index = chain_index.astype(np.int32)
@@ -78,14 +77,10 @@ def make_protein_features(
 
     all_atom_positions = protein_object.atom_positions # [num_res, num_atom_type, 3]
     all_atom_mask = protein_object.atom_mask # [num_res, num_atom_type]
+
     if normalize_coordinates:
-        try:
-            xyz_mean = np.sum(all_atom_positions, (0, 1), keepdims=True) / np.sum(all_atom_mask)
-            all_atom_positions = all_atom_positions - xyz_mean
-        except Exception as e:
-            logging.warning(all_atom_positions.shape)
-            logging.warning(f'cur!!!, {pdb_feats["domain_name"]}, {e}')
-            exit(-1)
+        xyz_mean = np.sum(all_atom_positions, (0, 1), keepdims=True) / np.sum(all_atom_mask)
+        all_atom_positions = all_atom_positions - xyz_mean
 
     pdb_feats["all_atom_positions"] = all_atom_positions.astype(np.float32)
     pdb_feats["all_atom_mask"] = all_atom_mask.astype(np.float32)

@@ -6,8 +6,8 @@
 #SBATCH --ntasks-per-node=4
 #SBATCH --time=3:00:00
 #SBATCH --exclusive
-#SBATCH --output=/home/shichenc/scratch/cath_gen/output/slurm_log/nowarm_short_v1.out
-#SBATCH --error=/home/shichenc/scratch/cath_gen/output/slurm_log/nowarm_short_v1.err
+#SBATCH --output=/home/shichenc/scratch/cath_gen/output/slurm_log/default_debug_v1.out
+#SBATCH --error=/home/shichenc/scratch/cath_gen/output/slurm_log/default_debug_v1.err
 #SBATCH --qos=unkillable
 
 ENV_NAME=cath_gen
@@ -25,11 +25,11 @@ srun python train_cath.py $TRAIN_DIR $OUTPUT_DIR \
     --ss_file $SCRATCH/structure_datasets/cath/raw/ss_annotation_31885.pkl \
     --val_data_dir $VALID_DIR \
     --seed 2022 \
-    --yaml_config_preset yaml_config/nowarm.yml \
+    --yaml_config_preset yaml_config/default.yml \
     --precision 16 --gpus 4 --log_every_n_steps 50 \
     --wandb true \
     --wandb_entity chenceshi \
-    --wandb_version b_short_v1 \
+    --wandb_version b_debug_v1 \
     --wandb_project cath_gen \
     --deepspeed_config_path deepspeed_config.json \
     --train_epoch_len 2000 \
