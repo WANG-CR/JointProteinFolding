@@ -168,7 +168,7 @@ def from_pdb_string_antibody(pdb_str: str, chain_id: Optional[str] = None) -> Pr
     chain_ids = []
     b_factors = []
 
-    # define constants of 6 cdr loops
+    # define constants of 6 cdr loops using Chotia renumbering scheme
     # now do not add 2 anchor nodes at each end
     # https://www.researchgate.net/figure/CDR-definitions-in-Chothia-numbering_tbl1_337735681
     loop_index = []
