@@ -7,7 +7,7 @@
 #SBATCH --time=3:00:00
 #SBATCH --exclusive
 #SBATCH --output=/home/shichenc/scratch/antibody/alphafold/output/slurm_log/base_debug_v1.out
-#SBATCH --error=/home/shichenc/scratch/antibody/alphafold/slurm_log/base_debug_v1.err
+#SBATCH --error=/home/shichenc/scratch/antibody/alphafold/output/slurm_log/base_debug_v1.err
 #SBATCH --qos=unkillable
 
 ENV_NAME=biofold

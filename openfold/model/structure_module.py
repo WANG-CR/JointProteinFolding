@@ -765,7 +765,7 @@ class StructureModule(nn.Module):
             angles = angles * (loop_mask[..., None, None]) + gt_angles * (1 - loop_mask[..., None, None])
 
             # [*, N, 21]
-            seqs_logits = self.seq_resnet(s, s_initial, seqs_emb)
+            seqs_logits = self.seq_resnet(s, s_initial, seqs_emb, loop_mask[..., None])
             seqs = F.softmax(seqs_logits, dim=-1)
 
             scaled_rigids = rigids.scale_translation(self.trans_scale_factor)

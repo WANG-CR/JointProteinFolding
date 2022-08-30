@@ -335,6 +335,10 @@ if __name__ == "__main__":
         )
     )
     parser.add_argument(
+        "--is_antibody", type=bool, default=None,
+        help="training on antibody or not"
+    )
+    parser.add_argument(
         "--val_data_dir", type=str, default=None,
         help="Directory containing validation mmCIF files"
     )

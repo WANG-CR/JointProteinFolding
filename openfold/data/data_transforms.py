@@ -76,9 +76,7 @@ def make_seq_mask(protein, loop_type=None):
 
 def make_seq_feat(protein):
     aatype_1hot = make_one_hot(protein["aatype"], 21)
-    sstype_1hot = make_one_hot(protein["sstype"], 3)
     protein["target_feat"] = aatype_1hot
-    protein["ss_feat"] = sstype_1hot
 
     return protein
 
@@ -91,7 +89,6 @@ def make_all_atom_aatype(protein):
 def squeeze_features(protein):
     """Remove singleton and repeated dimensions in protein features."""
     protein["aatype"] = torch.argmax(protein["aatype"], dim=-1)
-    protein["sstype"] = torch.argmax(protein["sstype"], dim=-1)
 
     for k in [
         "domain_name",

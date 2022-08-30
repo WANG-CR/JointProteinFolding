@@ -20,10 +20,10 @@ def _aatype_to_str_sequence(aatype):
 
 def make_sequence_features(
     sequence: str,
-    ss: str,
     description: str,
     num_res: int,
     chain_index: Optional[np.ndarray] = None,
+    loop_index: Optional[np.ndarray] = None,
 ) -> FeatureDict:
     """Construct a feature dict of sequence features."""
     features = {}
@@ -31,10 +31,6 @@ def make_sequence_features(
         sequence=sequence,
         mapping=residue_constants.restype_order_with_x,
         map_unknown_to_x=True,
-    )
-    features["sstype"] = residue_constants.ss_to_onehot(
-        ss=ss,
-        mapping=residue_constants.second_structures_order,
     )
     features["between_segment_residues"] = np.zeros((num_res,), dtype=np.int32)
     features["domain_name"] = np.array(
@@ -51,12 +47,12 @@ def make_sequence_features(
     features["sequence"] = np.array(
         [sequence.encode("utf-8")], dtype=np.object_
     )
+    features["loop_index"] = loop_index
     return features
 
 
 def make_protein_features(
     protein_object: protein.Protein,
-    ss: str,
     description: str,
     normalize_coordinates: bool = False,
 ) -> FeatureDict:
@@ -64,14 +60,15 @@ def make_protein_features(
     aatype = protein_object.aatype
     sequence = _aatype_to_str_sequence(aatype)
     chain_index = protein_object.chain_index
+    loop_index = protein_object.loop_index
     
     pdb_feats.update(
         make_sequence_features(
             sequence=sequence,
-            ss=ss,
             description=description,
             num_res=len(protein_object.aatype),
             chain_index=chain_index,
+            loop_index=loop_index,
         )
     )
 
@@ -92,14 +89,12 @@ def make_protein_features(
 
 def make_pdb_features(
     protein_object: protein.Protein,
-    ss: str,
     description: str,
     normalize_coordinates: bool = True,
 ) -> FeatureDict:
     
     pdb_feats = make_protein_features(
         protein_object,
-        ss,
         description,
         normalize_coordinates=normalize_coordinates,
     )
@@ -108,8 +103,7 @@ def make_pdb_features(
 
 class DataPipeline:
     """Assembles input features."""
-    def __init__(self, ss_dict, is_antibody):
-        self.ss_dict = ss_dict
+    def __init__(self, is_antibody):
         self.is_antibody = is_antibody
 
     def process_fasta(
@@ -128,14 +122,12 @@ class DataPipeline:
             )
         input_sequence = input_seqs[0]
         input_description = input_descs[0]
-        ss = self.ss_dict[input_description]
         chain_index = np.array([0] * len(input_seqs[0]))
 
         num_res = len(input_sequence)
 
         sequence_features = make_sequence_features(
             sequence=input_sequence,
-            ss=ss,
             description=input_description,
             num_res=num_res,
             chain_index=chain_index,
@@ -163,11 +155,9 @@ class DataPipeline:
             protein_object = protein.from_pdb_string_antibody(pdb_str, chain_id)
         else:
             protein_object = protein.from_pdb_string(pdb_str, chain_id)
-        ss = self.ss_dict[tag]
         description = os.path.splitext(os.path.basename(pdb_path))[0].upper()
         pdb_feats = make_pdb_features(
             protein_object,
-            ss,
             description,
             normalize_coordinates=True,
         )

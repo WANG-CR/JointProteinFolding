@@ -162,6 +162,7 @@ config = mlc.ConfigDict(
                 "crop_size": None,
                 "supervised": False,
                 "uniform_recycling": False,
+                "loop_type": "CDR",
             },
             "eval": {
                 "fixed_size": True,
@@ -169,6 +170,7 @@ config = mlc.ConfigDict(
                 "crop_size": None, # necessary for batch_size >= 2
                 "supervised": True,
                 "uniform_recycling": False,
+                "loop_type": "CDR",
             },
             "train": {
                 "fixed_size": True,
@@ -177,6 +179,7 @@ config = mlc.ConfigDict(
                 "supervised": True,
                 "clamp_prob": 0.9,
                 "uniform_recycling": True,
+                "loop_type": "CDR",
             },
             "data_module": {
                 "data_loaders": {
@@ -208,7 +211,7 @@ config = mlc.ConfigDict(
         "model": {
             "_mask_trans": True,
             "input_embedder": {
-                "tf_dim": 3,
+                "tf_dim": 21,
                 "c_z": c_z,
                 "c_m": c_m,
                 "relpos_k": 32,

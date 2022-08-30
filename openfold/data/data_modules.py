@@ -18,11 +18,10 @@ from openfold.utils.tensor_utils import tensor_tree_map, dict_multimap
 class OpenFoldSingleDataset(torch.utils.data.Dataset):
     def __init__(self,
         data_dir: str,
-        ss_file: str,
         config: mlc.ConfigDict,
         mode: str = "train", 
         output_raw: bool = False,
-        is_antibody: bool = False,
+        is_antibody: bool = True,
     ):
         """
             Args:
@@ -36,7 +35,6 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
         """
         super(OpenFoldSingleDataset, self).__init__()
         self.data_dir = data_dir
-        self.ss_file = ss_file
         self.config = config
         self.mode = mode
         self.output_raw = output_raw
@@ -53,14 +51,7 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
             chain: i for i, chain in enumerate(self.chain_ids)
         }
 
-        self.ss_dict = {}
-        with open(self.ss_file, 'rb') as fin:
-            second_structure_data = pickle.load(fin)
-        logging.warning(f"get {len(second_structure_data)} second structure data")
-        for ss in second_structure_data:
-            self.ss_dict[ss['tag']] = ss['ss3']
-
-        self.data_pipeline = data_pipeline.DataPipeline(self.ss_dict, self.is_antibody)
+        self.data_pipeline = data_pipeline.DataPipeline(self.is_antibody)
         if not self.output_raw:
             self.feature_pipeline = feature_pipeline.FeaturePipeline(config)
 
@@ -75,8 +66,13 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
 
         if(self.mode == 'train' or self.mode == 'eval'):
             # chain_id = name[4] is specific for CATH file
-            chain_id = name[4]
-            path = os.path.join(self.data_dir, name)
+            spl = name.rsplit('_',1)
+            if(len(spl)==2):
+                file_id, chain_id = spl
+            else:
+                file_id, = spl
+                chain_id = None
+            path = os.path.join(self.data_dir, file_id)
 
             if os.path.exists(path + ".pdb"):
                 data = self.data_pipeline.process_pdb(
@@ -292,9 +288,9 @@ class OpenFoldDataModule(pl.LightningDataModule):
         train_data_dir: Optional[str] = None,
         val_data_dir: Optional[str] = None,
         predict_data_dir: Optional[str] = None,
-        ss_file: Optional[str] = None,
         batch_seed: Optional[int] = None,
         train_epoch_len: Optional[int] = None,
+        is_antibody: Optional[bool] = False,
         **kwargs
     ):
         super(OpenFoldDataModule, self).__init__()
@@ -303,20 +299,15 @@ class OpenFoldDataModule(pl.LightningDataModule):
         self.train_data_dir = train_data_dir
         self.val_data_dir = val_data_dir
         self.predict_data_dir = predict_data_dir
-        self.ss_file = ss_file
         self.batch_seed = batch_seed
         self.train_epoch_len = train_epoch_len
-
+        self.is_antibody = is_antibody
         if self.train_data_dir is None and self.predict_data_dir is None:
             raise ValueError(
                 'At least one of train_data_dir or predict_data_dir must be '
                 'specified'
             )
 
-        if self.ss_file is None:
-            raise ValueError(
-                'secondary structure data should be provided.'
-            )
         self.training_mode = self.train_data_dir is not None
 
 
@@ -324,10 +315,10 @@ class OpenFoldDataModule(pl.LightningDataModule):
         if self.training_mode:
             train_dataset = OpenFoldSingleDataset(
                 data_dir=self.train_data_dir,
-                ss_file=self.ss_file,
                 config=self.config,
                 mode="train",
                 output_raw=True,
+                is_antibody=self.is_antibody
             )
 
             datasets = [train_dataset]
@@ -346,7 +337,6 @@ class OpenFoldDataModule(pl.LightningDataModule):
             if self.val_data_dir is not None:
                 self.eval_dataset = OpenFoldSingleDataset(
                     data_dir=self.val_data_dir,
-                    ss_file=self.ss_file,
                     config=self.config,
                     mode="eval",
                     output_raw=True,
@@ -357,7 +347,6 @@ class OpenFoldDataModule(pl.LightningDataModule):
         else:           
             self.predict_dataset = OpenFoldSingleDataset(
                 data_dir=self.predict_data_dir,
-                ss_file=self.ss_file,
                 config=self.config,
                 mode="predict",
                 output_raw=False,
@@ -380,7 +369,6 @@ class OpenFoldDataModule(pl.LightningDataModule):
             raise ValueError("Invalid stage")
 
         batch_collator = OpenFoldBatchCollator(self.config, stage)
-
         dl = OpenFoldDataLoader(
             dataset,
             config=self.config,

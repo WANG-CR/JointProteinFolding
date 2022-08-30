@@ -77,7 +77,7 @@ class InputEmbedder(nn.Module):
         Args:
             tf:
                 "target_feat" features of shape [*, N_res, 21]
-            ri:
+         åå   ri:
                 "residue_index" features of shape [*, N_res]
             loop_mask:
                 "loop_mask" features of shape [*, N_res]
@@ -98,8 +98,8 @@ class InputEmbedder(nn.Module):
 
         loop_mask_expand = loop_mask[..., None].expand_as(seq_types)
         tf = loop_mask_expand * seq_types + (1 - loop_mask_expand) * tf
-
         # [*, N_res, c_z]
+        # 
         tf_emb_i = self.linear_tf_z_i(tf)
         tf_emb_j = self.linear_tf_z_j(tf)
 
