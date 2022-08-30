@@ -115,6 +115,14 @@ class AlphaFold(nn.Module):
             feats["aatype"], x_prev, None
         ).to(z.dtype)
 
+        if seqs_prev is None:
+            # [*, N, 21]
+            seqs_prev = z.new_zeros(
+                (*batch_dims, n, residue_constants.restype_num + 1),
+                requires_grad=False,
+            )
+            seqs_prev[..., -1] = 1.0
+
         # m_1_prev_emb: [*, N, C_m]
         # z_prev_emb: [*, N, N, C_z]
         m_1_prev_emb, z_prev_emb = self.recycling_embedder(

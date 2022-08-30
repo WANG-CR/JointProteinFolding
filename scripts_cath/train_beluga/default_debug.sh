@@ -7,8 +7,8 @@
 #SBATCH --ntasks-per-node=4
 #SBATCH --time=3:00:00
 #SBATCH --exclusive
-#SBATCH --output=/home/tjhec/scratch/antibody/alphafold/output/slurm_log/default_debug_1.out
-#SBATCH --error=/home/tjhec/scratch/antibody/alphafold/output/slurm_log/default_debug_1.err
+#SBATCH --output=/home/tjhec/scratch/antibody/alphafold/output/slurm_log/b_nostop_seqgrad_v1.out
+#SBATCH --error=/home/tjhec/scratch/antibody/alphafold/output/slurm_log/b_nostop_seqgrad_v1.err
 #SBATCH --qos=unkillable
 
 ENV_NAME=biofold
@@ -31,7 +31,7 @@ srun python train_antibody.py $TRAIN_DIR $OUTPUT_DIR \
     --precision 16 --gpus 4 --log_every_n_steps 10 \
     --wandb true \
     --wandb_entity chuanrui \
-    --wandb_version antibody_debug_run3 \
+    --wandb_version d_nostop_seqgrad_v1 \
     --wandb_project cath_gen \
     --deepspeed_config_path deepspeed_config.json \
-    --train_epoch_len 2000 \
+    --train_epoch_len 1000 \
