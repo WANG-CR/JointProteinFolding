@@ -25,8 +25,8 @@ def make_data_config(
 
     feature_names = cfg.common.unsupervised_features
 
-    if cfg[mode].supervised:
-        feature_names += cfg.supervised.supervised_features
+    # if cfg[mode].supervised:
+    feature_names += cfg.supervised.supervised_features
 
     return cfg, feature_names
 

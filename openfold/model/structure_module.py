@@ -727,7 +727,7 @@ class StructureModule(nn.Module):
                 device=s.device,
             )
             seqs[..., -1] = 1.0
-            seqs.requires_grad_(self.training)
+            # seqs.requires_grad_(self.training)
         else:
             seqs = initial_seqs
 
@@ -773,6 +773,7 @@ class StructureModule(nn.Module):
             if not self.training or i == (self.no_blocks - 1):
                 if not self.training:
                     # [*, N]
+                    # print(f"inference loop aatype ...")
                     masked_seqs_logits = seqs_logits.clone()
                     masked_seqs_logits[..., -1] = -9999 # zero out UNK.
                     aatype_ = torch.argmax(masked_seqs_logits, dim=-1)
@@ -810,7 +811,7 @@ class StructureModule(nn.Module):
 
             if i < (self.no_blocks - 1):
                 rigids = rigids.stop_rot_gradient()
-                # seqs = seqs.detach()
+                seqs = seqs.detach()
 
             preds = {
                 "frames": scaled_rigids.to_tensor_7(), # [*, N, 7]
