@@ -57,7 +57,7 @@ class AlphaFold(nn.Module):
         )
 
     def iteration(
-        self, feats, m_1_prev, z_prev, x_prev,
+        self, feats, m_1_prev, z_prev, x_prev, seqs_prev,
         initial_rigids=None,
         initial_seqs=None,
         _recycle=True,
@@ -78,7 +78,6 @@ class AlphaFold(nn.Module):
         # Prep some features
         seq_mask = feats["seq_mask"]
         pair_mask = seq_mask[..., None] * seq_mask[..., None, :]
-
         # Initialize the seq and pair representations
         # m: [*, N, C_m]
         # z: [*, N, N, C_z]
@@ -86,7 +85,8 @@ class AlphaFold(nn.Module):
             feats["target_feat"],
             feats["residue_index"],
             feats["loop_mask"],
-            initial_seqs = initial_seqs,
+            seqs_prev,
+            
         )
 
         # Initialize the recycling embeddings, if needs be
@@ -115,12 +115,22 @@ class AlphaFold(nn.Module):
             feats["aatype"], x_prev, None
         ).to(z.dtype)
 
+        if seqs_prev is None:
+            # [*, N, 21]
+            seqs_prev = z.new_zeros(
+                (*batch_dims, n, residue_constants.restype_num + 1),
+                requires_grad=False,
+            )
+            seqs_prev[..., -1] = 1.0
+
         # m_1_prev_emb: [*, N, C_m]
         # z_prev_emb: [*, N, N, C_z]
         m_1_prev_emb, z_prev_emb = self.recycling_embedder(
             m_1_prev,
             z_prev,
             x_prev,
+            seqs_prev,
+            feats["loop_mask"],
         )
         # If the number of recycling iterations is 0, skip recycling
         # altogether. We zero them this way instead of computing them
@@ -278,8 +288,9 @@ class AlphaFold(nn.Module):
                     m_1_prev,
                     z_prev,
                     x_prev,
-                    initial_rigids=None,
-                    initial_seqs=seqs_prev,
+                    seqs_prev,
+                    initial_rigids=initial_rigids,
+                    initial_seqs=None,
                     _recycle=(num_iters > 1)
                 )
                 outputs.update(self.aux_heads(outputs))

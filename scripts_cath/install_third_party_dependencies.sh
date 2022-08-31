@@ -1,6 +1,6 @@
 #!/bin/bash
 
-ENV_NAME=cath_gen
+ENV_NAME=antibody_gen
 
 # Grab conda-only packages
 conda update -qy conda

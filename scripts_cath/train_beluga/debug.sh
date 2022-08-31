@@ -1,16 +1,17 @@
 #! /bin/bash
+#SBATCH --account=def-tjhec
 #SBATCH --cpus-per-task=10
 #SBATCH --mem=186G
 #SBATCH --gres=gpu:4
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=4
-#SBATCH --time=3:00:00
+#SBATCH --time=12:00:00
 #SBATCH --exclusive
-#SBATCH --output=/home/shichenc/scratch/antibody/alphafold/output/slurm_log/base_debug_v1.out
-#SBATCH --error=/home/shichenc/scratch/antibody/alphafold/output/slurm_log/base_debug_v1.err
+#SBATCH --output=/home/tjhec/scratch/antibody/alphafold/output/slurm_log/d_v1.out
+#SBATCH --error=/home/tjhec/scratch/antibody/alphafold/output/slurm_log/d_v1.err
 #SBATCH --qos=unkillable
 
-ENV_NAME=biofold
+ENV_NAME=antibody_gen
 module load cuda/11.4
 source activate $ENV_NAME
 echo env done
@@ -23,13 +24,14 @@ VALID_DIR=$DATA_DIR/database/pdb/20220319_99_True_All__4_valid
 OUTPUT_DIR=$WORK_DIR/output
 
 srun python train_antibody.py $TRAIN_DIR $OUTPUT_DIR \
+    --is_antibody true \
     --val_data_dir $VALID_DIR \
     --seed 2022 \
-    --yaml_config_preset yaml_config/base.yml \
+    --yaml_config_preset yaml_config/default.yml \
     --precision 16 --gpus 4 --log_every_n_steps 10 \
     --wandb true \
     --wandb_entity chuanrui \
-    --wandb_version antibody2 \
+    --wandb_version d_v1 \
     --wandb_project cath_gen \
     --deepspeed_config_path deepspeed_config.json \
-    --train_epoch_len 1000 \
+    --train_epoch_len 2000 \

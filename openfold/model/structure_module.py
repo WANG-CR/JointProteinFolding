@@ -743,7 +743,7 @@ class StructureModule(nn.Module):
             s = self.transition(s)
 
             # [*, N], only updating the unknown part
-            rigids = rigids.compose_q_update_vec(self.bb_update(s * loop_mask[..., None]))
+            rigids = rigids.compose_q_update_vec(self.bb_update(s) * loop_mask[..., None])
 
             # To hew as closely as possible to AlphaFold, we convert our
             # quaternion-based transformations to rotation-matrix ones
@@ -773,6 +773,7 @@ class StructureModule(nn.Module):
             if not self.training or i == (self.no_blocks - 1):
                 if not self.training:
                     # [*, N]
+                    # print(f"inference loop aatype ...")
                     masked_seqs_logits = seqs_logits.clone()
                     masked_seqs_logits[..., -1] = -9999 # zero out UNK.
                     aatype_ = torch.argmax(masked_seqs_logits, dim=-1)

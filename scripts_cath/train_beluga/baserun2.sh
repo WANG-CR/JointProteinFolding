@@ -5,13 +5,13 @@
 #SBATCH --gres=gpu:4
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=4
-#SBATCH --time=3:00:00
+#SBATCH --time=12:00:00
 #SBATCH --exclusive
-#SBATCH --output=/home/tjhec/scratch/antibody/alphafold/output/slurm_log/base_debug_1.out
-#SBATCH --error=/home/tjhec/scratch/antibody/alphafold/output/slurm_log/base_debug_1.err
+#SBATCH --output=/home/tjhec/scratch/antibody/alphafold/output/slurm_log/base_debug_2.out
+#SBATCH --error=/home/tjhec/scratch/antibody/alphafold/output/slurm_log/base_debug_2.err
 #SBATCH --qos=unkillable
 
-ENV_NAME=biofold
+ENV_NAME=antibody_gen
 module load cuda/11.4
 source activate $ENV_NAME
 echo env done
@@ -31,7 +31,7 @@ srun python train_antibody.py $TRAIN_DIR $OUTPUT_DIR \
     --precision 16 --gpus 4 --log_every_n_steps 10 \
     --wandb true \
     --wandb_entity chuanrui \
-    --wandb_version antibody_debug_run3 \
+    --wandb_version base_run2 \
     --wandb_project cath_gen \
     --deepspeed_config_path deepspeed_config.json \
     --train_epoch_len 2000 \

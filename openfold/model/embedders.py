@@ -157,11 +157,17 @@ class RecyclingEmbedder(nn.Module):
         self.layer_norm_m = LayerNorm(self.c_m)
         self.layer_norm_z = LayerNorm(self.c_z)
 
+        # seqs_prev
+        self.linear_seqs = Linear(21, self.c_m)
+        self.layer_norm_seqs = LayerNorm(self.c_m)
+
     def forward(
         self,
         m: torch.Tensor,
         z: torch.Tensor,
         x: torch.Tensor,
+        seqs: torch.Tensor, 
+        loop_mask: torch.Tensor, 
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Args:
@@ -188,6 +194,7 @@ class RecyclingEmbedder(nn.Module):
 
         # [*, N, C_m]
         m_update = self.layer_norm_m(m)
+        #  + self.layer_norm_seqs(self.linear_seqs(seqs)) * loop_mask[..., None]
 
         # This squared method might become problematic in FP16 mode.
         # I'm using it because my homegrown method had a stubborn discrepancy I
