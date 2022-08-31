@@ -226,6 +226,25 @@ def pdb2cdrfasta(fname, idx, data_dir, cdr_idx):
         raise ValueError(f'ext is invalid, should be either pdb of fasta, found {ext}')
     return ret, basename
 
+def pdb2cdrsfasta(fname, idx, data_dir):
+    basename, ext = os.path.splitext(fname)
+    fpath = os.path.join(data_dir, fname)
+    ret = []
+    if ext == '.pdb':
+        with open(fpath, 'r') as f:
+            pdb_str = f.read()
+        protein_object = protein.from_pdb_string_antibody(pdb_str)
+        seq = _aatype_to_str_sequence(protein_object.aatype)
+        cdrs = []
+        ret.append(f">{basename}_cdrs")
+        for i in range(1, 6 + 1):
+            cdrs.append(_string_index_select(seq, protein_object.loop_index==i))
+        ret.append("".join(cdrs))
+           
+    else:
+        raise ValueError(f'ext is invalid, should be either pdb of fasta, found {ext}')
+    return ret, basename
+
 def fastas2fasta(data_dir, mode=-1):
     """merge fastas in a directory into a single fasta
     mode: format of the output fasta
