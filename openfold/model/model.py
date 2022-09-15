@@ -114,6 +114,7 @@ class AlphaFold(nn.Module):
         x_prev = pseudo_beta_fn(
             feats["aatype"], x_prev, None
         ).to(z.dtype)
+        # possible leakage?
 
         if seqs_prev is None:
             # [*, N, 21]
@@ -168,6 +169,7 @@ class AlphaFold(nn.Module):
 
         # Predict 3D structure
         gt_angles = feats["torsion_angles_sin_cos"]
+        # Possible leakage
 
         outputs["sm"] = self.structure_module(
             s,
@@ -186,6 +188,7 @@ class AlphaFold(nn.Module):
         outputs["final_atom_mask"] = feats["atom37_atom_exists"]
         outputs["final_affine_tensor"] = outputs["sm"]["frames"][-1]
         outputs["final_aatype"] = outputs["sm"]["aatype_"][-1]
+        outputs["final_aatype_dist"] = outputs["sm"]["aatype_dist"][-1] 
         # Save embeddings for use during the next recycling iteration
 
         # [*, N, C_m]

@@ -18,7 +18,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from typing import Optional, Tuple
-
+from openfold.data import data_transforms
 from openfold.model.primitives import Linear, LayerNorm, ipa_point_weights_init_
 from openfold.np.residue_constants import (
     restype_rigid_group_default_frame,
@@ -770,14 +770,19 @@ class StructureModule(nn.Module):
 
             scaled_rigids = rigids.scale_translation(self.trans_scale_factor)
 
+            aatype_dist = seqs
             if not self.training or i == (self.no_blocks - 1):
                 if not self.training:
                     # [*, N]
                     # print(f"inference loop aatype ...")
                     masked_seqs_logits = seqs_logits.clone()
                     masked_seqs_logits[..., -1] = -9999 # zero out UNK.
-                    aatype_ = torch.argmax(masked_seqs_logits, dim=-1)
-                    aatype_ = aatype_ * loop_mask.long() + aatype * (1 - loop_mask.long())
+                    masked_seqs_logits = F.softmax(masked_seqs_logits, dim=-1)
+                    aatype_dist = data_transforms.make_one_hot(aatype, 21)
+                    aatype_dist = masked_seqs_logits * loop_mask[..., None].long() + aatype_dist * (1 - loop_mask[..., None].long())
+                    aatype_ = torch.argmax(aatype_dist, dim=-1)
+                    # aatype_ = torch.argmax(masked_seqs_logits, dim=-1)
+                    # aatype_ = aatype_ * loop_mask.long() + aatype * (1 - loop_mask.long())
                 else:
                     aatype_ = aatype
 
@@ -791,6 +796,7 @@ class StructureModule(nn.Module):
                     aatype_,
                 ) # [*, N, 14, 3]
                 all_frames_to_global = all_frames_to_global.to_tensor_4x4() # [*, N, 8, 4, 4]
+                #leakage in pred_xyz and all_frames_to_global
             else:
                 # Use dummy "all_frames_to_global" and "pred_xyz" to
                 # save time if it is not the last step during the training.
@@ -808,7 +814,7 @@ class StructureModule(nn.Module):
                     device=unnormalized_angles.device,
                     requires_grad=self.training,
                 ) # [*, N, 14, 3]
-
+            
             if i < (self.no_blocks - 1):
                 rigids = rigids.stop_rot_gradient()
                 seqs = seqs.detach()
@@ -823,6 +829,7 @@ class StructureModule(nn.Module):
                 "seqs_logits": seqs_logits, # [*, N, 21]
                 "seqs": seqs, # [*, N, 21]
                 "aatype_": aatype_, # [*, N]
+                "aatype_dist": aatype_dist,
             }
 
             outputs.append(preds)

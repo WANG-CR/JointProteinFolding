@@ -7,6 +7,7 @@ from typing import Mapping, Optional, Sequence, Any
 
 from openfold.data import parsers
 from openfold.np import residue_constants, protein
+from openfold.utils import data_utils
 
 FeatureDict = Mapping[str, np.ndarray]
 
@@ -153,6 +154,7 @@ class DataPipeline:
 
         if self.is_antibody:
             protein_object = protein.from_pdb_string_antibody(pdb_str, chain_id)
+            protein_object = data_utils.filter_ab_from_complex(protein_object)
         else:
             protein_object = protein.from_pdb_string(pdb_str, chain_id)
         description = os.path.splitext(os.path.basename(pdb_path))[0].upper()

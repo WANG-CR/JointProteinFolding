@@ -62,15 +62,17 @@ def make_seq_mask(protein, loop_type=None):
         protein["aatype"].shape, dtype=torch.float32
     )
 
+    # print(f"loop type is {loop_type}")
     if loop_type == "CDR":
         protein["loop_mask"] = (protein["loop_index"] != 0).to(torch.float32)
-    elif loop_type in [1, 2, 3, 4, 5, 6]:
-        protein["loop_mask"] = (protein["loop_index"] == loop_type).to(torch.float32)
+    elif loop_type in ['1', '2', '3', '4', '5', '6']:
+        protein["loop_mask"] = (protein["loop_index"] == int(loop_type)).to(torch.float32)
     elif loop_type == "antibody":
         protein["loop_mask"] = (protein["chain_index"] <= 1).to(torch.float32)
     else:
         protein["loop_mask"] = torch.zeros_like(protein["seq_mask"])
 
+    # print(f'loop mask is {protein["loop_mask"]}')
     return protein
 
 

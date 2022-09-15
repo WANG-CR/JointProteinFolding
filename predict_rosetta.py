@@ -1,5 +1,7 @@
 import argparse
 import logging
+from tracemalloc import start
+from turtle import shape
 logging.basicConfig(level=logging.INFO)
 
 import os
@@ -13,6 +15,7 @@ import torch
 from openfold.utils.tensor_utils import tensor_tree_map
 from openfold.utils.feats import atom14_to_atom37
 from openfold.utils.seed import seed_everything
+from openfold.utils.superimposition import superimpose
 from openfold.np import residue_constants, protein
 from openfold.model.model import AlphaFold
 from openfold.data import feature_pipeline, data_pipeline, data_transforms
@@ -103,7 +106,8 @@ def main(args):
             logging.info(f"Inference time: {time.perf_counter() - t}")
 
         # Toss out the recycling dimensions --- we don't need them anymore
-        batch = tensor_tree_map(lambda x: np.array(x[..., -1].cpu()), batch)
+        # batch = tensor_tree_map(lambda x: np.array(x[..., -1].cpu()), batch)
+        batch = tensor_tree_map(lambda x: x[..., -1].cpu(), batch)
 
         # handle the discrepancy caused by predicted aatype.
         if "final_aatype" in out:
@@ -131,24 +135,55 @@ def main(args):
         metric = {}
         metric["name"] = name
 
-        #sampling 1W samples
-        #using multinomial (not calculating argmax)
+        final_pred_aatype_dist = out["final_aatype_dist"]
+        final_pred_aatype_dist = torch.from_numpy(final_pred_aatype_dist)
+        final_pred_aatype = torch.argmax(final_pred_aatype_dist, dim=-1)
+        gt_aatype = batch["aatype"]
+        gt_aatype_one_hot = data_transforms.make_one_hot(gt_aatype, 21)
+        loop_index = batch["loop_index"]
 
+        start = time.time()
+        #sampling 10K samples
+        num_samples = 10000
+        num_k = 100
+        #using multinomial to sample
+        # print(f"size of final_pred_aatype_dist is {final_pred_aatype_dist.shape}")
 
+        aatype_sample10000 = torch.multinomial(final_pred_aatype_dist, num_samples, replacement=True).permute(1,0)
+        # print(f"size of aatype_sample100 is {aatype_sample10000.shape}")
+        # top k sampling
+        aatype_sample_onehot = data_transforms.make_one_hot(aatype_sample10000, 21)
+        # print(f"size of augmented final_pred_aatype_dist is {final_pred_aatype_dist[None, ...].repeat(num_samples,1,1).shape}")
+        likelihood = (final_pred_aatype_dist[None, ...].repeat(num_samples,1,1))[aatype_sample_onehot.to(torch.bool)].view(num_samples, -1)
+        log_likelihood = torch.log(likelihood)
+        log_likelihood = torch.sum(log_likelihood, -1)
+        # print(f"size of loglikelihood is {log_likelihood.shape}")
+        _, indice = torch.sort(log_likelihood,descending=True)
+        aatype_sample100 = aatype_sample10000[indice[:num_k], :]
+        
+        # print(f"size of likelihood is {likelihood.shape}")
+        # print(f"time used is {time.time()-start}")
+        loop_index100 = loop_index.expand(num_k,-1)
+        # print(f"size of loop_index 100 is {loop_index100.shape}")
+        for i in range(1,7):
+            metric["sampleAAR"+str(i)] = ((gt_aatype[loop_index==i].repeat(num_k) == aatype_sample100[loop_index100==i]).sum() / len(gt_aatype[loop_index==i]) / num_k).item()
+        logging.info(f"loop H3 sample aar of {name}: {metric['sampleAAR3']}")
         #for each sample, calculate AAR
 
-        final_pred_aatype = out["final_aatype"]
-        gt_aatype = batch["aatype"]
-        loop_index = batch["loop_index"]
-        loop_pred = []
-        loop_gt = []
-        aar = []
+
+
+
+        # loop_pred = []
+        # loop_gt = []
+        # aar = []
         for i in range(1,7):
-            loop_pred.append(final_pred_aatype[loop_index==i])
-            loop_gt.append(gt_aatype[loop_index==i])
-            aar.append((loop_pred[i-1] == loop_gt[i-1]).sum() / len(loop_gt[i-1]))
-        metric["aar"] = aar
-        logging.info(f"loop H3 aar of {name}: {aar[2]}")
+            # loop_pred.append(final_pred_aatype[loop_index==i])
+            # loop_gt.append(gt_aatype[loop_index==i])
+            # aar.append((loop_pred[i-1] == loop_gt[i-1]).sum() / len(loop_gt[i-1]))
+            metric["aar"+str(i)] = ((final_pred_aatype[loop_index==i] == gt_aatype[loop_index==i]).sum() / len(gt_aatype[loop_index==i])).item()
+        # metric["aar"] = aar
+        # logging.info(f"loop H3 aar of {name}: {aar[2]}")
+        logging.info(f"loop H3 aar of {name}: {metric['aar3']}")
         unrelaxed_protein = protein.from_prediction(
             features=batch,
             result=out,
@@ -157,63 +192,139 @@ def main(args):
         )
 
         ##for each sample, compute perplexity
+        def compute_perplexity(gt_aatype_one_hot, pred_aatype_dist, loop_index):
+            #pred_aatype_dist is a distribution
+            #gt_aatype [*, Nres]
+            #turn gt_aatype into one-hot
+            assert gt_aatype_one_hot.shape == pred_aatype_dist.shape
+            ppl = pred_aatype_dist[gt_aatype_one_hot.to(torch.bool)]
+            assert ppl.shape == loop_index.shape
 
+            ppl = ppl[loop_index]
+            ppl = torch.log(ppl)
+            ppl = -1 / len(ppl) * torch.sum(ppl)
+            ppl = torch.exp(ppl)
+            return ppl.item()
 
+        for i in range(1,7):
+            metric["ppl"+str(i)] = compute_perplexity(gt_aatype_one_hot,final_pred_aatype_dist,loop_index==i)
+            # metric["ppl"+str(i)] = compute_perplexity(gt_aatype[loop_index==i],final_pred_aatype_dist[loop_index_broadcast==i])
+            # logging.info(f"loop {i} ppl of {name}: {metric['ppl'+str(i)]}")
+        
 
 
         ##for each sample, compute Sequence RMSD for different loops region
+        def calculate_rmsd_ca(p1, p2, mask):
+            """
+                Compute GDT between two structures.
+                (Global Distance Test under specified distance cutoff)
+                Args:
+                    p1:
+                        [*, N, 3] superimposed predicted (ca) coordinate tensor
+                    p2:
+                        [*, N, 3] ground-truth (ca) coordinate tensor
+                    mask:
+                        [*, N] residue masks
+                    cutoffs:
+                        A tuple of size 4, which contains distance cutoffs.
+                Returns:
+                    A [*] tensor contains the final GDT score.
+            """
+            n = torch.sum(mask, dim=-1) # [*]
+            
+            p1 = p1.float()
+            p2 = p2.float()
+            distance = torch.sum((p1 - p2)**2, dim=-1)    # [*, N]
+            rmsd = torch.sqrt(torch.sum(distance * mask, dim=-1)/ (mask.sum()+ 1e-6))
+            return rmsd.item()
+       
+       
+        gt_coords = batch["all_atom_positions"] # [*, N, 37, 3]
+        pred_coords = out["final_atom_positions"] # [*, N, 37, 3]
+        all_atom_mask = batch["all_atom_mask"] # [*, N, 37]
+        # This is super janky for superimposition. Fix later
 
+        pred_coords = torch.from_numpy(pred_coords)
 
+        gt_coords_masked = gt_coords * all_atom_mask[..., None] # [*, N, 37, 3]
+        pred_coords_masked = pred_coords * all_atom_mask[..., None] # [*, N, 37, 3]
+        ca_pos = residue_constants.atom_order["CA"]
+        gt_coords_masked_ca = gt_coords_masked[..., ca_pos, :] # [*, N, 3]
+        pred_coords_masked_ca = pred_coords_masked[..., ca_pos, :] # [*, N, 3]
+        all_atom_mask_ca = all_atom_mask[..., ca_pos] # [*, N]
+        
+        superimposed_pred, _ = superimpose(
+            gt_coords_masked_ca, pred_coords_masked_ca
+            ) # [*, N, 3]
+        
+        for i in range(1,7):
+            metric["rmsd"+str(i)] = calculate_rmsd_ca(
+                superimposed_pred, gt_coords_masked_ca, loop_index==i
+            )
 
         metrics.append(metric)
         
-        # Save the unrelaxed PDB.
-        unrelaxed_output_path = os.path.join(
-            predict_dir,
-            f"{name}_{ckpt_epoch}_{args.config_preset}_rec{args.no_recycling_iters}_s{args.seed}_unrelaxed.pdb"
-        )
-        with open(unrelaxed_output_path, 'w') as f:
-            f.write(protein.to_pdb(unrelaxed_protein))
+        # unrelaxed_protein = protein.from_prediction(
+        #     features=batch,
+        #     result=out,
+        #     b_factors=plddt_b_factors,
+        #     chain_index=batch["chain_index"],
+        # )
 
-        if args.relax:
-            if "relax" not in sys.modules:
-                import openfold.np.relax.relax as relax
+        # # Save the unrelaxed PDB.
+        # unrelaxed_output_path = os.path.join(
+        #     predict_dir,
+        #     f"{name}_{ckpt_epoch}_{args.config_preset}_rec{args.no_recycling_iters}_s{args.seed}_unrelaxed.pdb"
+        # )
+        # with open(unrelaxed_output_path, 'w') as f:
+        #     f.write(protein.to_pdb(unrelaxed_protein))
 
-            logging.info("start relaxation")
-            amber_relaxer = relax.AmberRelaxation(
-                use_gpu=(args.model_device != "cpu"),
-                **config.relax,
-            )
-            try:
-                # Relax the prediction.
-                t = time.perf_counter()
-                visible_devices = os.getenv("CUDA_VISIBLE_DEVICES")
-                if("cuda" in args.model_device):
-                    device_no = args.model_device.split(":")[-1]
-                    os.environ["CUDA_VISIBLE_DEVICES"] = device_no
-                relaxed_pdb_str, _, _ = amber_relaxer.process(
-                    prot=unrelaxed_protein)
-                os.environ["CUDA_VISIBLE_DEVICES"] = visible_devices
-                logging.info(f"Relaxation time: {time.perf_counter() - t}")
+        # if args.relax:
+        #     if "relax" not in sys.modules:
+        #         import openfold.np.relax.relax as relax
 
-                # Save the relaxed PDB.
-                relaxed_output_path = os.path.join(
-                    predict_dir,
-                    f"{name}_{ckpt_epoch}_{args.config_preset}_rec{args.no_recycling_iters}_s{args.seed}_relaxed.pdb"
-                )
-                with open(relaxed_output_path, 'w') as f:
-                    f.write(relaxed_pdb_str)
-            except Exception as e:
-                logging.warning(e)
-                logging.warning("relaxation failed...")
+        #     logging.info("start relaxation")
+        #     amber_relaxer = relax.AmberRelaxation(
+        #         use_gpu=(args.model_device != "cpu"),
+        #         **config.relax,
+        #     )
+        #     try:
+        #         # Relax the prediction.
+        #         t = time.perf_counter()
+        #         visible_devices = os.getenv("CUDA_VISIBLE_DEVICES")
+        #         if("cuda" in args.model_device):
+        #             device_no = args.model_device.split(":")[-1]
+        #             os.environ["CUDA_VISIBLE_DEVICES"] = device_no
+        #         relaxed_pdb_str, _, _ = amber_relaxer.process(
+        #             prot=unrelaxed_protein)
+        #         os.environ["CUDA_VISIBLE_DEVICES"] = visible_devices
+        #         logging.info(f"Relaxation time: {time.perf_counter() - t}")
+
+        #         # Save the relaxed PDB.
+        #         relaxed_output_path = os.path.join(
+        #             predict_dir,
+        #             f"{name}_{ckpt_epoch}_{args.config_preset}_rec{args.no_recycling_iters}_s{args.seed}_relaxed.pdb"
+        #         )
+        #         with open(relaxed_output_path, 'w') as f:
+        #             f.write(relaxed_pdb_str)
+        #     except Exception as e:
+        #         logging.warning(e)
+        #         logging.warning("relaxation failed...")
 
     sum_aar = 0
     for metric in metrics:
-        sum_aar += metric["aar"][2]
+        sum_aar += metric["aar3"]
     avg_aar = sum_aar / len(metrics)
-    logging.info(f"avg aars : {avg_aar}")
-    
-    pd.DataFrame(metrics).to_csv('metrics.csv')
+    logging.info(f"avg aar3s : {avg_aar}")
+
+    sum_ppl = 0
+    for metric in metrics:
+        sum_ppl += metric["ppl3"]
+    avg_ppl = sum_ppl / len(metrics)
+    logging.info(f"avg ppl3s : {avg_ppl}") 
+
+    print(f"{args.version}")
+    pd.DataFrame(metrics).to_csv(args.version + 'top_100_sample.csv')
     
 def bool_type(bool_str: str):
     bool_str_lower = bool_str.lower()
@@ -233,6 +344,9 @@ if __name__ == "__main__":
     parser.add_argument(
         "resume_from_ckpt", type=str,
         help="Path to model parameters."
+    )
+    parser.add_argument(
+        "--version", type=str, default=None,
     )
     parser.add_argument(
         "--is_antibody", type=bool, default=None,
