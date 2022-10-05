@@ -100,8 +100,6 @@ config = mlc.ConfigDict(
             "common": {
                 "feat": {
                     "aatype": [NUM_RES],
-                    "loop_index": [NUM_RES],
-                    "loop_mask": [NUM_RES],
                     "all_atom_mask": [NUM_RES, None],
                     "all_atom_positions": [NUM_RES, None, None],
                     "alt_chi_angles": [NUM_RES, None],
@@ -139,7 +137,6 @@ config = mlc.ConfigDict(
                 "max_recycling_iters": 3,
                 "unsupervised_features": [
                     "aatype",
-                    "loop_index",
                     "residue_index",
                     "chain_index",
                     "seq_length",

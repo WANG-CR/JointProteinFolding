@@ -45,11 +45,6 @@ class Protein:
     # value.
     b_factors: np.ndarray  # [num_res, num_atom_type]
 
-    # A numebr in {0,1,2,3,4,5,6} indicating whether a residue is within a CDR loop
-    # Currently only useful when modeling antibodies
-    # CDR H1/2/3: 1, 2, 3        CDR L1/2/3: 4, 5, 6    None: 0
-    loop_index: np.ndarray  # [num_res]
-
     def __post_init__(self):
         if len(np.unique(self.chain_index)) > PDB_MAX_CHAINS:
             raise ValueError(
@@ -358,7 +353,6 @@ def from_prediction(
     result: ModelOutput,
     b_factors: Optional[np.ndarray] = None,
     chain_index: Optional[np.ndarray] = None,
-    loop_index: Optional[np.ndarray] = None,
 ) -> Protein:
     """Assembles a protein from a prediction.
 
@@ -374,8 +368,6 @@ def from_prediction(
         b_factors = np.zeros_like(result["final_atom_mask"])
     if chain_index is None:
         chain_index = np.zeros_like(features["aatype"])
-    if loop_index is None:
-        loop_index = np.zeros_like(features["aatype"])
     if "final_aatype" in result:
         aatype = result["final_aatype"]
     else:
@@ -389,5 +381,4 @@ def from_prediction(
         residue_index=features["residue_index"] + 1,
         chain_index=chain_index,
         b_factors=b_factors,
-        loop_index=loop_index,
     )

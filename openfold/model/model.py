@@ -84,7 +84,6 @@ class AlphaFold(nn.Module):
         m, z = self.input_embedder(
             feats["target_feat"],
             feats["residue_index"],
-            feats["loop_mask"],
             seqs_prev,
             
         )
@@ -131,7 +130,6 @@ class AlphaFold(nn.Module):
             z_prev,
             x_prev,
             seqs_prev,
-            feats["loop_mask"],
         )
         # If the number of recycling iterations is 0, skip recycling
         # altogether. We zero them this way instead of computing them
@@ -178,7 +176,6 @@ class AlphaFold(nn.Module):
             mask=feats["seq_mask"].to(dtype=s.dtype),
             initial_rigids=initial_rigids,
             initial_seqs=initial_seqs,
-            loop_mask=feats["loop_mask"],
             gt_angles=gt_angles,
         )
 
@@ -255,27 +252,9 @@ class AlphaFold(nn.Module):
             # Select the features for the current recycling cycle
             fetch_cur_batch = lambda t: t[..., cycle_no]
             feats = tensor_tree_map(fetch_cur_batch, batch)
-
-            if "backbone_rigid_tensor_7s" in feats:
-                gt_aff_7s = feats["backbone_rigid_tensor_7s"] # [*, N, 7]
-                gt_aff_7s[..., 4:] = gt_aff_7s[..., 4:] * (
-                    1.0 / self.structure_module.trans_scale_factor
-                )
-                identity_rigid_7s = torch.zeros_like(gt_aff_7s)
-                identity_rigid_7s[..., 0] = 1
-                loop_mask_expand = feats["loop_mask"][..., None].expand_as(gt_aff_7s) # [*, N, 7]
-                # only predict the loop
-                initial_rigids = loop_mask_expand * identity_rigid_7s + (1 - loop_mask_expand) * gt_aff_7s
-                initial_rigids = Rigid.from_tensor_7(initial_rigids)
-                if x_prev is None:
-                    # [*, N, 37, 3]
-                    x_prev = feats["all_atom_positions"]
-                    x_prev_zero = torch.zeros_like(x_prev)
-                    loop_mask_expand = feats["loop_mask"][..., None, None].expand_as(x_prev) # [*, N, 37, 3]
-                    x_prev = loop_mask_expand * x_prev_zero + (1 - loop_mask_expand) * x_prev
-            else:
-                initial_rigids = None
-
+            initial_rigids = None
+            #problem: initial rigids always None?
+            
             # Enable grad iff we're training and it's the final recycling layer
             is_final_iter = cycle_no == (num_iters - 1)
             with torch.set_grad_enabled(is_grad_enabled and is_final_iter):

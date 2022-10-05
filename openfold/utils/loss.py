@@ -134,7 +134,6 @@ def backbone_loss(
     clamp_distance: float = 10.0,
     loss_unit_distance: float = 10.0,
     eps: float = 1e-4,
-    loop_mask: Optional[torch.Tensor] = None,
     **kwargs,
 ) -> torch.Tensor:
     pred_aff = Rigid.from_tensor_7(traj)
@@ -151,7 +150,7 @@ def backbone_loss(
     # it might be fine.
     gt_aff = Rigid.from_tensor_4x4(backbone_rigid_tensor)
 
-    backbone_rigid_mask_pos = backbone_rigid_mask * loop_mask
+    backbone_rigid_mask_pos = backbone_rigid_mask
 
     fape_loss = compute_fape(
         pred_aff,
@@ -198,7 +197,6 @@ def sidechain_loss(
     alt_naming_is_better: torch.Tensor,
     clamp_distance: float = 10.0,
     length_scale: float = 10.0,
-    loop_mask: Optional[torch.Tensor] = None,
     eps: float = 1e-4,
     **kwargs,
 ) -> torch.Tensor:
@@ -224,7 +222,7 @@ def sidechain_loss(
         *batch_dims, -1, 3
     ) # [*, N * 14, 3]
 
-    renamed_atom14_gt_exists = renamed_atom14_gt_exists * loop_mask[..., None] # [*, N, 14]
+    renamed_atom14_gt_exists = renamed_atom14_gt_exists # [*, N, 14]
     renamed_atom14_gt_exists = renamed_atom14_gt_exists.view(*batch_dims, -1) # [*, N * 14]
 
     fape = compute_fape(
@@ -276,7 +274,6 @@ def supervised_chi_loss(
     chi_weight: float,
     angle_norm_weight: float,
     eps=1e-6,
-    loop_mask: Optional[torch.Tensor] = None,
     **kwargs,
 ) -> torch.Tensor:
     """
@@ -328,8 +325,8 @@ def supervised_chi_loss(
         *range(len(sq_chi_error.shape))[1:-2], 0, -2, -1
     )
 
-    chi_mask = chi_mask * loop_mask[..., None]
-    seq_mask = seq_mask * loop_mask
+    chi_mask = chi_mask
+    seq_mask = seq_mask
     sq_chi_loss = masked_mean(
         chi_mask[..., None, :, :], sq_chi_error, dim=(-1, -2, -3)
     )
@@ -507,7 +504,6 @@ def lddt_loss(
     min_resolution: float = 0.1,
     max_resolution: float = 3.0,
     eps: float = 1e-10,
-    loop_mask: Optional[torch.Tensor] = None,
     **kwargs,
 ) -> torch.Tensor:
     n = all_atom_mask.shape[-2]
@@ -536,7 +532,7 @@ def lddt_loss(
 
     errors = softmax_cross_entropy(logits, lddt_ca_one_hot)
     all_atom_mask = all_atom_mask.squeeze(-1)
-    all_atom_mask = all_atom_mask * loop_mask
+    all_atom_mask = all_atom_mask
 
     loss = torch.sum(errors * all_atom_mask, dim=-1) / (
         eps + torch.sum(all_atom_mask, dim=-1)
@@ -560,7 +556,6 @@ def distogram_loss(
     max_bin=21.6875,
     no_bins=64,
     eps=1e-6,
-    loop_mask: Optional[torch.Tensor] = None,
     **kwargs,
 ):
 
@@ -590,9 +585,6 @@ def distogram_loss(
 
 
     square_mask = pseudo_beta_mask[..., None] * pseudo_beta_mask[..., None, :]
-
-    loop_square_mask = (1 - loop_mask)[..., None] * (1 - loop_mask)[..., None, :]
-    square_mask = square_mask * (1 - loop_square_mask)
     # FP16-friendly sum. Equivalent to:
     # mean = (torch.sum(errors * square_mask, dim=(-1, -2)) /
     #         (eps + torch.sum(square_mask, dim=(-1, -2))))
@@ -1516,10 +1508,9 @@ def experimentally_resolved_loss(
     min_resolution: float,
     max_resolution: float,
     eps: float = 1e-8,
-    loop_mask: Optional[torch.Tensor] = None,
     **kwargs,
 ) -> torch.Tensor:
-    atom37_atom_exists = atom37_atom_exists * loop_mask[..., None]
+    atom37_atom_exists = atom37_atom_exists
     
     errors = sigmoid_cross_entropy(logits, all_atom_mask)
     loss = torch.sum(errors * atom37_atom_exists, dim=-1)
@@ -1535,7 +1526,7 @@ def experimentally_resolved_loss(
     return loss
 
 
-def seqs_loss(logits, aatype, seq_mask, loop_mask, eps=1e-8, **kwargs):
+def seqs_loss(logits, aatype, seq_mask, eps=1e-8, **kwargs):
     """
     Computes sequence type cross-entropy loss.
 
@@ -1543,7 +1534,6 @@ def seqs_loss(logits, aatype, seq_mask, loop_mask, eps=1e-8, **kwargs):
         logits: [traj, *, N_res, 21] predicted seq type logits
         aatype: [*, N_res] true seq type
         seq_mask: [*, N_res] seq mask
-        loop_mask: [*, N_res] loop mask
     Returns:
         seq type loss
     """
@@ -1561,17 +1551,15 @@ def seqs_loss(logits, aatype, seq_mask, loop_mask, eps=1e-8, **kwargs):
         *range(len(errors.shape))[1:-1], 0, -1
     )
     seq_mask = seq_mask[..., None, :].expand_as(errors)
-    loop_mask = loop_mask[..., None, :].expand_as(errors)
     # FP16-friendly averaging. Equivalent to:
     # loss = (
     #     torch.sum(errors * seq_mask, dim=(-1, -2)) /
     #     (eps + torch.sum(seq_mask, dim=(-1, -2)))
     # )
     loss = errors * seq_mask
-    loss = loss * loop_mask
     loss = torch.sum(loss, dim=-1)
     scale = 0.5
-    denom = eps + torch.sum(scale * seq_mask * loop_mask, dim=(-1, -2))
+    denom = eps + torch.sum(scale * seq_mask, dim=(-1, -2))
     loss = loss / denom[..., None]
     loss = torch.sum(loss, dim=-1)
     loss = loss * scale

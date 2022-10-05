@@ -70,17 +70,14 @@ class InputEmbedder(nn.Module):
         self,
         tf: torch.Tensor,
         ri: torch.Tensor,
-        loop_mask: torch.Tensor, 
         initial_seqs: Optional[torch.Tensor],
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Args:
             tf:
                 "target_feat" features of shape [*, N_res, 21]
-         åå   ri:
+            ri:
                 "residue_index" features of shape [*, N_res]
-            loop_mask:
-                "loop_mask" features of shape [*, N_res]
 
         Returns:
             tf_m:
@@ -88,16 +85,6 @@ class InputEmbedder(nn.Module):
             pair_emb:
                 "pair embedding" features [*, N_res, N_res, C_z] 
         """
-        # mask loop type for loop design
-        if initial_seqs is None:
-            seq_types = torch.zeros_like(tf)
-            seq_types[..., -1] = 1.0
-        else:
-            #initial_seqs shape [*, N, 21]
-            seq_types = initial_seqs
-
-        loop_mask_expand = loop_mask[..., None].expand_as(seq_types)
-        tf = loop_mask_expand * seq_types + (1 - loop_mask_expand) * tf
         # [*, N_res, c_z]
         # 
         tf_emb_i = self.linear_tf_z_i(tf)
@@ -167,7 +154,6 @@ class RecyclingEmbedder(nn.Module):
         z: torch.Tensor,
         x: torch.Tensor,
         seqs: torch.Tensor, 
-        loop_mask: torch.Tensor, 
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Args:
@@ -194,7 +180,6 @@ class RecyclingEmbedder(nn.Module):
 
         # [*, N, C_m]
         m_update = self.layer_norm_m(m)
-        #  + self.layer_norm_seqs(self.linear_seqs(seqs)) * loop_mask[..., None]
 
         # This squared method might become problematic in FP16 mode.
         # I'm using it because my homegrown method had a stubborn discrepancy I

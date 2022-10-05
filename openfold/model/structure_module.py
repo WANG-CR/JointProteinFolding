@@ -201,7 +201,6 @@ class SeqResnet(nn.Module):
         self, s: torch.Tensor,
         s_initial: torch.Tensor,
         s_seq: torch.Tensor,
-        loop_mask: torch.Tensor,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Args:
@@ -226,7 +225,7 @@ class SeqResnet(nn.Module):
         s_seq = self.relu(s_seq)
         s_seq = self.linear_seq(s_seq)
 
-        s = s + s_initial + s_seq * loop_mask
+        s = s + s_initial + s_seq
 
         for l in self.layers:
             s = l(s)
@@ -678,7 +677,6 @@ class StructureModule(nn.Module):
         mask=None,
         initial_rigids=None,
         initial_seqs=None,
-        loop_mask=None,
         gt_angles=None,
     ):
         """
@@ -736,14 +734,18 @@ class StructureModule(nn.Module):
             # [*, N, C_s]
             seqs_emb = self.seq_emb_nn(seqs)
             # only updating the unknown part
-            s = s + seqs_emb * loop_mask[..., None]
+            check_inf_nan(seqs_emb)
+            s = s + seqs_emb
             s = s + self.ipa(s, z, rigids, mask)
             s = self.ipa_dropout(s)
             s = self.layer_norm_ipa(s)
             s = self.transition(s)
 
             # [*, N], only updating the unknown part
-            rigids = rigids.compose_q_update_vec(self.bb_update(s) * loop_mask[..., None])
+            bb_update = self.bb_update(s)
+            check_inf_nan(bb_update)
+            rigids = rigids.compose_q_update_vec(bb_update)
+            
 
             # To hew as closely as possible to AlphaFold, we convert our
             # quaternion-based transformations to rotation-matrix ones
@@ -762,12 +764,11 @@ class StructureModule(nn.Module):
 
             # [*, N, 7, 2]
             unnormalized_angles, angles = self.angle_resnet(s, s_initial)
-            angles = angles * (loop_mask[..., None, None]) + gt_angles * (1 - loop_mask[..., None, None])
 
             # [*, N, 21]
-            seqs_logits = self.seq_resnet(s, s_initial, seqs_emb, loop_mask[..., None])
+            seqs_logits = self.seq_resnet(s, s_initial, seqs_emb)
             seqs = F.softmax(seqs_logits, dim=-1)
-
+            check_inf_nan([seqs_logits, seqs])
             scaled_rigids = rigids.scale_translation(self.trans_scale_factor)
 
             aatype_dist = seqs
@@ -778,11 +779,9 @@ class StructureModule(nn.Module):
                     masked_seqs_logits = seqs_logits.clone()
                     masked_seqs_logits[..., -1] = -9999 # zero out UNK.
                     masked_seqs_logits = F.softmax(masked_seqs_logits, dim=-1)
-                    aatype_dist = data_transforms.make_one_hot(aatype, 21)
-                    aatype_dist = masked_seqs_logits * loop_mask[..., None].long() + aatype_dist * (1 - loop_mask[..., None].long())
+                    aatype_dist = masked_seqs_logits
                     aatype_ = torch.argmax(aatype_dist, dim=-1)
                     # aatype_ = torch.argmax(masked_seqs_logits, dim=-1)
-                    # aatype_ = aatype_ * loop_mask.long() + aatype * (1 - loop_mask.long())
                 else:
                     aatype_ = aatype
 

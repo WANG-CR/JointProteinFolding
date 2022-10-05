@@ -24,7 +24,6 @@ def make_sequence_features(
     description: str,
     num_res: int,
     chain_index: Optional[np.ndarray] = None,
-    loop_index: Optional[np.ndarray] = None,
 ) -> FeatureDict:
     """Construct a feature dict of sequence features."""
     features = {}
@@ -48,7 +47,6 @@ def make_sequence_features(
     features["sequence"] = np.array(
         [sequence.encode("utf-8")], dtype=np.object_
     )
-    features["loop_index"] = loop_index
     return features
 
 
@@ -61,7 +59,6 @@ def make_protein_features(
     aatype = protein_object.aatype
     sequence = _aatype_to_str_sequence(aatype)
     chain_index = protein_object.chain_index
-    loop_index = protein_object.loop_index
     
     pdb_feats.update(
         make_sequence_features(
@@ -69,7 +66,6 @@ def make_protein_features(
             description=description,
             num_res=len(protein_object.aatype),
             chain_index=chain_index,
-            loop_index=loop_index,
         )
     )
 

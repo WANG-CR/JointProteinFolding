@@ -28,7 +28,7 @@ def nonensembled_transform_fns(mode_cfg):
     transforms = [
         data_transforms.cast_to_64bit_ints,
         data_transforms.squeeze_features,
-        data_transforms.make_seq_mask(mode_cfg["loop_type"]),
+        data_transforms.make_seq_mask,
         data_transforms.make_seq_feat,
         data_transforms.make_atom14_masks,
     ] 

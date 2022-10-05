@@ -1,6 +1,6 @@
 #!/bin/bash
 
-ENV_NAME=antibody_gen
+ENV_NAME=pf
 
 # Grab conda-only packages
 conda update -qy conda
