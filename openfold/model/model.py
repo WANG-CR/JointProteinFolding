@@ -40,6 +40,8 @@ class AlphaFold(nn.Module):
         # Main trunk + structure module
         self.input_embedder = InputEmbedder(
             **self.config["input_embedder"],
+            residue_emb_cfg=self.config["residue_emb"],
+            residue_attn_cfg=self.config["residue_attn"],
         )
         self.recycling_embedder = RecyclingEmbedder(
             **self.config["recycling_embedder"],

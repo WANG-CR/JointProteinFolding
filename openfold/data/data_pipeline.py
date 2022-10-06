@@ -102,7 +102,7 @@ class DataPipeline:
     """Assembles input features."""
     def __init__(self, is_antibody):
         self.is_antibody = is_antibody
-
+        logging.info(f"is antibody in DataPipeline is {self.is_antibody}")
     def process_fasta(
         self,
         fasta_path: str,
@@ -148,6 +148,7 @@ class DataPipeline:
         with open(pdb_path, 'r') as f:
             pdb_str = f.read()
 
+        
         if self.is_antibody:
             protein_object = protein.from_pdb_string_antibody(pdb_str, chain_id)
             protein_object = data_utils.filter_ab_from_complex(protein_object)

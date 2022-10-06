@@ -2,9 +2,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from typing import Optional, Tuple
-
+import logging
 from openfold.model.primitives import Linear, LayerNorm
 from openfold.utils.tensor_utils import one_hot
+import ml_collections as mlc
 
 class InputEmbedder(nn.Module):
     """
@@ -19,6 +20,8 @@ class InputEmbedder(nn.Module):
         c_z: int,
         c_m: int,
         relpos_k: int,
+        residue_emb_cfg: mlc.ConfigDict,
+        residue_attn_cfg: mlc.ConfigDict,
         **kwargs,
     ):
         """
@@ -37,7 +40,7 @@ class InputEmbedder(nn.Module):
         super(InputEmbedder, self).__init__()
 
         self.tf_dim = tf_dim
-
+        logging.info(f"tf_dim is {tf_dim}")
         self.c_z = c_z
         self.c_m = c_m
         self.linear_tf_z_i = Linear(tf_dim, c_z)
@@ -48,6 +51,24 @@ class InputEmbedder(nn.Module):
         self.relpos_k = relpos_k
         self.no_bins = 2 * relpos_k + 1
         self.linear_relpos = Linear(self.no_bins, c_z)
+
+        self.esm_model, _ = torch.hub.load("facebookresearch/esm:main", "esm2_t33_650M_UR50D")
+        emb_input_dim = 1280
+        self.linear_emb_m = Linear(emb_input_dim, c_m)
+        self.linear_emb_z_i = Linear(emb_input_dim, c_z)
+        self.linear_emb_z_j = Linear(emb_input_dim, c_z)
+        self.tf_squeeze_flag = False
+
+        self.residue_attn_cfg = residue_attn_cfg
+        self.residue_emb_cfg = residue_emb_cfg
+        if self.residue_attn_cfg["enabled"]:
+            attn_input_dim = self.residue_attn_cfg["c_emb"]
+            self.linear_attn = Linear(attn_input_dim, c_z)
+        if self.residue_emb_cfg["enabled"]:
+            logging.warning(f"residue emb is set as: {self.residue_emb_cfg['usage']}")
+        if not self.residue_emb_cfg["enabled"]:   
+            logging.warning('residue emb cfg not enabled')  
+        self.is_lm_finetune = False
 
     def relpos(self, ri: torch.Tensor):
         """
@@ -65,6 +86,76 @@ class InputEmbedder(nn.Module):
         )
         oh = one_hot(d, boundaries).type(ri.dtype)
         return self.linear_relpos(oh)
+
+    def _mapping(self, seq):
+        # mapping_esm_x=[1, 5, 10, 17, 13, 23, 16, 9, 6, 21, 12, 4, 15, 20, 18, 14, 8, 11, 22, 19, 7, 3]
+        mapping_esm_x=[5, 10, 17, 13, 23, 16, 9, 6, 21, 12, 4, 15, 20, 18, 14, 8, 11, 22, 19, 7, 3]
+        count = 0
+        for i in range(seq.size(1)):
+            seq[0,i] = mapping_esm_x[seq[0,i].to(torch.int)]
+            if seq[0,i]==1 and count == 0:
+                count += 1 
+                seq[0,i]=2
+        # print(f"seq information is {seq}")
+        return count
+
+    def _convert_to_esm_index(self, tf: torch.Tensor):
+        # logging.info("converting tf index to esm index")
+        # print(f"sequence index size is {tf.size()}")
+        # print(f"sequence index list is {tf}")
+        # tf_esm = torch.argmax(tf, dim=2) + 4
+
+        # if tf.ndim == 2:
+        #     tf_esm = tf.unsqueeze_(0)
+        tf_esm = torch.argmax(tf, dim=-1)
+        count = self._mapping(tf_esm)
+
+        # print(f"sequence index size is {tf_esm.size()}")
+        # print(f"sequence index list is {tf_esm}")
+        
+        # add bos and eos to the sequence
+        cls = torch.tensor([[0]]).to(tf_esm.device)
+        tf_esm = torch.cat((cls,tf_esm),1)
+
+        eos = torch.tensor([[2-count]]).to(tf_esm.device)
+        tf_esm = torch.cat((tf_esm,eos),1)
+        # logging.info(f"sequence after converting is {tf_esm}")
+        # print(f"sequence after converting is {tf_esm}")
+        return tf_esm
+
+
+    def residue_encoding(self, tf: torch.Tensor):
+        if not self.is_lm_finetune:
+            for params in self.esm_model.parameters():
+                params.requires_grad = False
+            # logging.info(f"freezing language model parameters")
+
+        # logging.info("feeding tf esm into esm encoder")
+        self.tf_squeeze_flag = False
+        if tf.ndim == 2:
+            tf = tf.clone().unsqueeze(0)
+            self.tf_squeeze_flag = True
+
+        # calculating Heavy Chain embedding
+        tf_H = self._convert_to_esm_index(tf)
+        if not self.is_lm_finetune:
+            with torch.no_grad():
+                results_H = self.esm_model(tf_H, repr_layers=[33], need_head_weights=True, return_contacts=True)
+            # logging.info(f"not finetuning language model")
+        elif self.is_lm_finetune:
+            results_H = self.esm_model(tf_H, repr_layers=[33], need_head_weights=True, return_contacts=True)
+            # logging.info(f"finetuning language model")
+
+        tf_H = results_H["representations"][33]
+        tf_H = tf_H[:, 1:-1 ,:]
+
+        # att_H = results_H["attentions"]
+        # print(f"att_H size is {att_H}")
+        if self.tf_squeeze_flag:
+            tf_H.squeeze_(0)
+
+        return tf_H
+
 
     def forward(
         self,
@@ -93,12 +184,57 @@ class InputEmbedder(nn.Module):
         # [*, N_res, c_m]
         tf_m = self.linear_tf_m(tf)
 
+        residue_emb_m = None
+
+        if self.residue_emb_cfg["enabled"]:
+            # initialize functions to digest pre-trained residue embeddings
+            fn_cat = lambda i, j, emb_z_i, emb_z_j, m, emb_m: (i + emb_z_i, j + emb_z_j, m + emb_m)
+            fn_replace = lambda i, j, emb_z_i, emb_z_j, m, emb_m: (emb_z_i, emb_z_j, emb_m)
+            fn_msa = lambda i, j, emb_z_i, emb_z_j, m, emb_m: (i, j, m)
+            fn_dict = {
+                "cat": fn_cat,
+                "replace": fn_replace,
+                "msa": fn_msa
+            }
+            
+            tf_esm = self.residue_encoding(tf)
+            # tf_esm, attn = self.residue_encoding(tf, chain_index_copy)
+            
+            if self.residue_emb_cfg["usage"] != "msa":                      
+                residue_emb_z_i = self.linear_emb_z_i(tf_esm) # [*, N_res, c_z]
+                residue_emb_z_j = self.linear_emb_z_j(tf_esm) # [*, N_res, c_z]
+                residue_emb_m = self.linear_emb_m(tf_esm) # [*, N_res, c_m]
+            
+            else:
+                residue_emb_z_i = None
+                residue_emb_z_j = None
+                # [[*, N_res, emb_dim]...]
+                # Warning: Note that this operation is order-sensitve!
+                per_model_residue_emb = []
+                for i, layer in enumerate(self.linear_emb_m):
+                    per_model_residue_emb.append(layer(emb[i]))
+                    
+                # [*, N_model, N_res, c_m]
+                residue_emb_m = torch.stack(per_model_residue_emb, dim=-3)
+              
+            tf_emb_i, tf_emb_j, tf_m = fn_dict[self.residue_emb_cfg["usage"]](
+                tf_emb_i, tf_emb_j, 
+                residue_emb_z_i, residue_emb_z_j,
+                tf_m, residue_emb_m
+            )
+
         # [*, N_res, N_res, c_z]
         pair_emb = tf_emb_i[..., None, :] + tf_emb_j[..., None, :, :]
         pair_emb = pair_emb + self.relpos(ri.type(pair_emb.dtype))
-        pair_emb = pair_emb
+        
+        # residue_attn enabled
+        if self.residue_attn_cfg["enabled"]:
+            assert attn is not None
+            attn_feat = self.linear_attn(attn)
+            pair_emb = pair_emb + attn_feat
 
         return tf_m, pair_emb
+
 
 
 class RecyclingEmbedder(nn.Module):
@@ -179,7 +315,7 @@ class RecyclingEmbedder(nn.Module):
         )
 
         # [*, N, C_m]
-        m_update = self.layer_norm_m(m)
+        m_update = self.layer_norm_m(m) + self.layer_norm_seqs(self.linear_seqs(seqs))
 
         # This squared method might become problematic in FP16 mode.
         # I'm using it because my homegrown method had a stubborn discrepancy I

@@ -37,6 +37,7 @@ from openfold.utils.tensor_utils import (
     permute_final_dims,
     flatten_final_dims,
 )
+from openfold.utils.loss import check_inf_nan
 
 
 class ResnetBlock(nn.Module):

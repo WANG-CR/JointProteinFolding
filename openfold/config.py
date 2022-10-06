@@ -90,7 +90,8 @@ chunk_size = mlc.FieldReference(4, field_type=int)
 aux_distogram_bins = mlc.FieldReference(64, field_type=int)
 tm_enabled = mlc.FieldReference(False, field_type=bool)
 eps = mlc.FieldReference(1e-8, field_type=float)
-
+residue_emb_enabled = mlc.FieldReference(False, field_type=bool)
+residue_attn_enabled = mlc.FieldReference(False, field_type=bool)
 NUM_RES = "num residues placeholder"
 
 
@@ -121,6 +122,8 @@ config = mlc.ConfigDict(
                     "pseudo_beta_mask": [NUM_RES],
                     "residue_index": [NUM_RES],
                     "chain_index": [NUM_RES],
+                    "residue_emb": [None, NUM_RES, None],
+                    "residue_attn": [NUM_RES, NUM_RES, None],
                     "residx_atom14_to_atom37": [NUM_RES, None],
                     "residx_atom37_to_atom14": [NUM_RES, None],
                     "rigidgroups_alt_gt_frames": [NUM_RES, None, None, None],
@@ -142,6 +145,8 @@ config = mlc.ConfigDict(
                     "seq_length",
                     "between_segment_residues",
                     "no_recycling_iters",
+                    "residue_emb",
+                    "residue_attn",
                 ],
             },
             "supervised": {
@@ -220,6 +225,16 @@ config = mlc.ConfigDict(
                 "max_bin": 20.75,
                 "no_bins": 15,
                 "inf": 1e8,
+            },
+            "residue_emb": {
+                "c_emb": 1280,
+                "num_emb_feats": 1,
+                "usage": "cat",
+                "enabled": residue_emb_enabled,
+            },
+            "residue_attn": {
+                "c_emb": 64,
+                "enabled": residue_attn_enabled,
             },
             "evoformer_stack": {
                 "c_m": c_m,

@@ -18,7 +18,7 @@ import ml_collections
 import numpy as np
 import torch
 import torch.nn as nn
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple, Union, Sequence
 
 from openfold.np import residue_constants
 from openfold.utils.rigid_utils import Rotation, Rigid
@@ -45,6 +45,21 @@ def sigmoid_cross_entropy(logits, labels):
     loss = -labels * log_p - (1 - labels) * log_not_p
     return loss
 
+def check_inf_nan(
+    tensors: Union[torch.Tensor, Sequence[torch.Tensor]]
+):
+    if not isinstance(tensors, list):
+        if isinstance(tensors, tuple):
+            tensors = list(tensors)
+        elif isinstance(tensors, torch.Tensor):
+            tensors = [tensors]
+        else:
+            raise ValueError(
+                f"input type {type(tensors)} is not supported."
+            )
+    for idx, tensor in enumerate(tensors):
+        assert not torch.isnan(tensor).any(), f"idx: {idx}"
+        assert not torch.isinf(tensor).any(), f"idx: {idx}"
 
 def compute_fape(
     pred_frames: Rigid,

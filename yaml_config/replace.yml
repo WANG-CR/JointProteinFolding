@@ -3,17 +3,13 @@ model:
     no_blocks: 8
   structure_module:
     no_blocks: 8
-
+  residue_emb:
+    enabled: true
+    usage: replace
 data:
   data_module:
     data_loaders:
       num_workers: 8
-  train:
-    loop_type: '1'
-  eval:
-    loop_type: '1'
-  predict:
-    loop_type: '1'
 
 optimizer:
   lr: 0.001

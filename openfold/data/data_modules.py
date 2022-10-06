@@ -21,7 +21,7 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
         config: mlc.ConfigDict,
         mode: str = "train", 
         output_raw: bool = False,
-        is_antibody: bool = True,
+        is_antibody: bool = False,
     ):
         """
             Args:
@@ -51,6 +51,7 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
             chain: i for i, chain in enumerate(self.chain_ids)
         }
 
+        logging.info(f"is antibody in SingleDataset is {self.is_antibody}")
         self.data_pipeline = data_pipeline.DataPipeline(self.is_antibody)
         if not self.output_raw:
             self.feature_pipeline = feature_pipeline.FeaturePipeline(config)
@@ -312,6 +313,8 @@ class OpenFoldDataModule(pl.LightningDataModule):
 
 
     def setup(self):
+        logging.info(f"is antibody in DataModule is {self.is_antibody}")
+        logging.info(f"train dataset")
         if self.training_mode:
             train_dataset = OpenFoldSingleDataset(
                 data_dir=self.train_data_dir,
@@ -334,12 +337,14 @@ class OpenFoldDataModule(pl.LightningDataModule):
                 roll_at_init=False,
             )
 
+            logging.info(f"eval dataset")
             if self.val_data_dir is not None:
                 self.eval_dataset = OpenFoldSingleDataset(
                     data_dir=self.val_data_dir,
                     config=self.config,
                     mode="eval",
                     output_raw=True,
+                    is_antibody=self.is_antibody,
                 )
             else:
                 self.eval_dataset = None
