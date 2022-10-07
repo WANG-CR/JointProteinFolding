@@ -19,6 +19,7 @@ from operator import add
 
 import numpy as np
 import torch
+import logging
 
 from openfold.config import NUM_RES
 from openfold.np import residue_constants as rc
@@ -60,6 +61,8 @@ def make_seq_mask(protein, loop_type=None):
     protein["seq_mask"] = torch.ones(
         protein["aatype"].shape, dtype=torch.float32
     )
+
+    # logging.info(f'protein["seq_mask"] size is {protein["seq_mask"].shape}')
     return protein
 
 
@@ -738,6 +741,24 @@ def atom37_to_torsion_angles(
 
     return protein
 
+
+def get_backbone_coords(protein):
+    gt_coords = protein["all_atom_positions"]
+    n_pos = rc.atom_order["N"]
+    gt_coords_n = gt_coords[..., n_pos, :].unsqueeze(-2) # [*, N, 3]
+
+    ca_pos = rc.atom_order["CA"]
+    gt_coords_ca = gt_coords[..., ca_pos, :].unsqueeze(-2) # [*, N, 3]
+
+    c_pos = rc.atom_order["C"]
+    gt_coords_c = gt_coords[..., c_pos, :].unsqueeze(-2) # [*, N, 3]
+
+    o_pos = rc.atom_order["O"]
+    gt_coords_o = gt_coords[..., o_pos, :].unsqueeze(-2) # [*, N, 3]
+
+    protein["coords"] = torch.cat((gt_coords_n, gt_coords_ca, gt_coords_c, gt_coords_o), dim=-2)
+    # logging.info(f'coords shape is {protein["coords"].shape}')
+    return protein
 
 def get_backbone_frames(protein):
     # DISCREPANCY: AlphaFold uses tensor_7s here. I don't know why.

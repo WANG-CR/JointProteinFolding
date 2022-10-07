@@ -114,6 +114,7 @@ config = mlc.ConfigDict(
                     "backbone_rigid_mask": [NUM_RES],
                     "backbone_rigid_tensor": [NUM_RES, None, None],
                     "backbone_rigid_tensor_7s": [NUM_RES, None],
+                    "coords": [NUM_RES, None, None],
                     "chi_angles_sin_cos": [NUM_RES, None, None],
                     "torsion_angles_sin_cos": [NUM_RES, None, None],
                     "chi_mask": [NUM_RES, None],
@@ -156,6 +157,7 @@ config = mlc.ConfigDict(
                     "all_atom_positions",
                     "resolution",
                     "use_clamped_fape",
+                    "coords",
                 ],
             },
             "predict": {
@@ -186,7 +188,7 @@ config = mlc.ConfigDict(
             "data_module": {
                 "data_loaders": {
                     "batch_size": 1,
-                    "num_workers": 8,
+                    "num_workers": 10,
                 },
             },
         },

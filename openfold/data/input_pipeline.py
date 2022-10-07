@@ -1,7 +1,7 @@
 from functools import partial
 
 import torch
-
+import logging
 from openfold.data import data_transforms
 
 
@@ -31,6 +31,7 @@ def nonensembled_transform_fns(mode_cfg):
         data_transforms.make_seq_mask,
         data_transforms.make_seq_feat,
         data_transforms.make_atom14_masks,
+        data_transforms.get_backbone_coords,
     ] 
 
     # if mode_cfg.supervised:
@@ -94,14 +95,13 @@ def process_tensors_from_config(tensors, common_cfg, mode_cfg):
     nonensembled = nonensembled_transform_fns(mode_cfg)
 
     tensors = compose(nonensembled)(tensors)
-
     if("no_recycling_iters" in tensors):
         num_recycling = int(tensors["no_recycling_iters"])
     else:
         num_recycling = common_cfg.max_recycling_iters
 
+    # the input tensor is wrapped with an additional dimension [no_recycle_iters + 1]
     tensors = map_fn(
         lambda x: wrap_ensemble_fn(tensors, x), torch.arange(num_recycling + 1)
     )
-
     return tensors

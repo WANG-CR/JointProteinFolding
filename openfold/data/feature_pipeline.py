@@ -4,7 +4,7 @@ from typing import Mapping, Tuple, List, Optional, Dict, Sequence
 import ml_collections
 import numpy as np
 import torch
-
+import logging
 from openfold.data import input_pipeline
 
 
@@ -66,13 +66,14 @@ def np_example_to_features(
         np_example=np_example,
         features=feature_names,
     )
+    
     with torch.no_grad():
         features = input_pipeline.process_tensors_from_config(
             tensor_dict,
             cfg.common,
             cfg[mode],
         )
-
+    # logging.info(f'features["seq_mask"] size2 is {features["seq_mask"].shape}')
     return {k: v for k, v in features.items()}
 
 

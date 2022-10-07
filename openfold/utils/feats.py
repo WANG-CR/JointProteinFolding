@@ -31,6 +31,81 @@ from openfold.utils.tensor_utils import (
 )
 
 
+def rbf(values, v_min=2., v_max=22., n_bins=16):
+    """
+    Returns RBF encodings in a new dimension at the end.
+    """
+    rbf_centers = torch.linspace(v_min, v_max, n_bins, device=values.device)
+    rbf_centers = rbf_centers.view([1] * len(values.shape) + [-1])
+    rbf_std = (v_max - v_min) / n_bins
+    v_expand = torch.unsqueeze(values, -1)
+    z = (values.unsqueeze(-1) - rbf_centers) / rbf_std
+    return torch.exp(-z ** 2)
+
+def rbf_from_two_array(a, b):
+    """
+    Return:
+        (B, N, N, i_z)
+    """
+    dist = torch.sqrt(torch.sum((a[:, :, None, :] - b[:, None, :, :])**2, dim=-1) + 1e-6)
+    return rbf(dist)
+
+def compute_pair_rbf(
+    backbone_positions: torch.Tensor,
+    atom_mask: torch.Tensor,
+):
+    """
+        Compute the contact map of alpha carbons
+        Args:
+            backbone_positions: (B, N, 4, 3)
+            atom_mask: (B, N, )
+        Returns:
+            [*, N, N, i_z] pair rbf feature
+    """
+    X = backbone_positions
+    b = X[:,:,1,:] - X[:,:,0,:]
+    c = X[:,:,2,:] - X[:,:,1,:]
+    a = torch.cross(b, c, dim=-1)
+
+    Cb = - 0.58273431 * a + 0.56802827 * b - 0.54067466 * c + X[:,:,1,:]
+    Ca = X[:,:,1,:]
+    N = X[:,:,0,:]
+    C = X[:,:,2,:]
+    O = X[:,:,3,:]
+
+    RBF_all = []
+    RBF_all.append(rbf_from_two_array(Ca, Ca)) #Ca-Ca
+    RBF_all.append(rbf_from_two_array(N, N)) #N-N
+    RBF_all.append(rbf_from_two_array(C, C)) #C-C
+    RBF_all.append(rbf_from_two_array(O, O)) #O-O
+    RBF_all.append(rbf_from_two_array(Cb, Cb)) #Cb-Cb
+    RBF_all.append(rbf_from_two_array(Ca, N)) #Ca-N
+    RBF_all.append(rbf_from_two_array(Ca, C)) #Ca-C
+    RBF_all.append(rbf_from_two_array(Ca, O)) #Ca-O
+    RBF_all.append(rbf_from_two_array(Ca, Cb )) #Ca-Cb
+    RBF_all.append(rbf_from_two_array(N, C )) #N-C
+    RBF_all.append(rbf_from_two_array(N, O )) #N-O
+    RBF_all.append(rbf_from_two_array(N, Cb )) #N-Cb
+    RBF_all.append(rbf_from_two_array(Cb, C )) #Cb-C
+    RBF_all.append(rbf_from_two_array(Cb, O )) #Cb-O
+    RBF_all.append(rbf_from_two_array(O, C )) #O-C
+    RBF_all.append(rbf_from_two_array(N, Ca )) #N-Ca
+    RBF_all.append(rbf_from_two_array(C, Ca )) #C-Ca
+    RBF_all.append(rbf_from_two_array(O, Ca )) #O-Ca
+    RBF_all.append(rbf_from_two_array(Cb, Ca )) #Cb-Ca
+    RBF_all.append(rbf_from_two_array(C, N )) #C-N
+    RBF_all.append(rbf_from_two_array(O, N )) #O-N
+    RBF_all.append(rbf_from_two_array(Cb, N )) #Cb-N
+    RBF_all.append(rbf_from_two_array(C, Cb )) #C-Cb
+    RBF_all.append(rbf_from_two_array(O, Cb )) #O-Cb
+    RBF_all.append(rbf_from_two_array(C, O )) #C-O
+
+    RBF_all = torch.cat(RBF_all, dim=-1)    # 25 x 16 = 400
+
+    # RBF_all = mask...
+    return RBF_all
+
+
 def pseudo_beta_fn(aatype, all_atom_positions, all_atom_masks):
     is_gly = aatype == rc.restype_order["G"]
     ca_idx = rc.atom_order["CA"]

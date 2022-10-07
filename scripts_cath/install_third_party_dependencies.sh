@@ -1,6 +1,6 @@
 #!/bin/bash
 
-ENV_NAME=pf
+ENV_NAME=pf2
 
 # Grab conda-only packages
 conda update -qy conda

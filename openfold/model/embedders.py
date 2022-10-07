@@ -236,6 +236,139 @@ class InputEmbedder(nn.Module):
         return tf_m, pair_emb
 
 
+from openfold.model.gvp.gvp_encoder import GVPEncoder
+
+# following gvp paper settings
+gvp_gnn_args = {
+    # GVPGraphEmbedding
+    'node_hidden_dim_scalar': 100,
+    'node_hidden_dim_vector': 16,
+    'edge_hidden_dim_scalar': 32,
+    'edge_hidden_dim_vector': 1,
+    'top_k_neighbors': 30, 
+    # GVPConv
+    'dropout': 0.,
+    'num_encoder_layers': 3,    
+}
+
+class GVPEmbedder(nn.Module):
+    """
+    Embeds a subset of the input features.
+
+    Implements Algorithms 3 (InputEmbedder) and 4 (relpos).
+    """
+
+    def __init__(
+        self,
+        tf_dim: int,
+        c_z: int,
+        c_m: int,
+        relpos_k: int,
+        i_z: int = 400, 
+        max_len: int = 500,
+        use_gvp: bool = True,
+        **kwargs,
+    ):
+        """
+        Args:
+            tf_dim:
+                Final dimension of the target features
+            c_z:
+                Pair embedding dimension
+            c_m:
+                sequence embedding dimension
+            relpos_k:
+                Window size used in relative positional encoding
+            mask_loop_type:
+                mask whole loop region/certain loop region/none mask
+        """
+        super(GVPEmbedder, self).__init__()
+
+        self.use_gvp = use_gvp
+
+        self.tf_dim = tf_dim
+        self.c_z = c_z
+        self.c_m = c_m
+        self.i_z = i_z
+
+        if self.use_gvp:
+            print("will use GVP to featurize node embedding")
+            self.gvp_embedding = GVPEncoder(**gvp_gnn_args)
+            self.post_gvp = Linear(gvp_gnn_args["node_hidden_dim_scalar"], self.c_m)
+        else:
+            self.idx_embedding = nn.Embedding(num_embeddings=257,
+                                        embedding_dim=c_m)
+
+        # RPE stuff
+        self.relpos_k = relpos_k
+        self.no_bins = 2 * relpos_k + 1
+        self.linear_relpos = Linear(self.no_bins, c_z)
+
+        self.linear_contact = Linear(i_z, c_z) 
+
+    def relpos(self, ri: torch.Tensor):
+        """
+        Computes relative positional encodings
+
+        Implements Algorithm 4.
+
+        Args:
+            ri:
+                "residue_index" features of shape [*, N]
+        """
+        d = ri[..., None] - ri[..., None, :]
+        boundaries = torch.arange(
+            start=-self.relpos_k, end=self.relpos_k + 1, device=d.device
+        )
+        oh = one_hot(d, boundaries).type(ri.dtype)
+        return self.linear_relpos(oh)
+
+    def forward(
+        self,
+        tf: torch.Tensor,
+        ri: torch.Tensor,
+        pair_rbf: torch.Tensor,
+        coords: torch.Tensor = None,
+        mask: torch.Tensor = None,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Args:
+            tf:
+                "target_feat" features of shape [*, N_res, 21]
+            ri:
+                "residue_index" features of shape [*, N_res]
+            pair_rbf:
+                "pair_rbf" features of shape [*, N_res, N_res, i_z]
+
+        Returns:
+            tf_m:
+                "sequence embedding" features of [*, N_res, C_m] 
+            pair_emb:
+                "pair embedding" features [*, N_res, N_res, C_z] 
+        """
+        # _dtype = torch.get_default_dtype()
+        _dtype = tf.dtype
+        # oh = oh..type(torch.float32)
+        pair_emb = self.relpos(ri.type(_dtype))
+        mask = mask.bool()
+
+        # [*, N_res, c_m]
+        if self.use_gvp:
+            assert coords is not None and mask is not None
+            node_s, node_v = self.gvp_embedding(coords.type(_dtype), mask, ~mask)    # s: B x T x C
+            # node_s, node_v = self.gvp_embedding(coords.type(torch.float32), mask, ~mask)    # s: B x T x C
+            tf_m = self.post_gvp(node_s).type(pair_emb.dtype) + node_v.mean().type(pair_emb.dtype) * 0
+        else:
+            tf_m = self.idx_embedding(ri).type(pair_emb.dtype)
+
+        assert pair_rbf is not None
+        pair_rbf = pair_rbf.type(pair_emb.dtype)
+        
+        contact_emb = self.linear_contact(pair_rbf).type(pair_emb.dtype)
+        pair_emb = contact_emb + pair_emb
+
+        return tf_m, pair_emb
+
 
 class RecyclingEmbedder(nn.Module):
     """

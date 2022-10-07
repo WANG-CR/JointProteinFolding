@@ -11,7 +11,7 @@
 #SBATCH --error=/home/chuanrui/scratch/research/ProteinFolding/alphafold/output/slurm_log/debug.err
 #SBATCH --qos=unkillable
 
-ENV_NAME=pf
+ENV_NAME=pf2
 module load cuda/11.4
 source activate $ENV_NAME
 echo env done

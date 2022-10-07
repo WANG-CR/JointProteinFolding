@@ -603,12 +603,16 @@ def distogram_loss(
     # FP16-friendly sum. Equivalent to:
     # mean = (torch.sum(errors * square_mask, dim=(-1, -2)) /
     #         (eps + torch.sum(square_mask, dim=(-1, -2))))
-    denom = eps + torch.sum(square_mask, dim=(-1, -2))
-    mean = errors * square_mask
-    mean = torch.sum(mean, dim=-1)
+    # denom = eps + torch.sum(square_mask, dim=(-1, -2))
+    # mean = errors * square_mask
+    # mean = torch.sum(mean, dim=-1)
+    scale = 0.2  # hack to help FP16 training along
+    denom = eps + torch.sum(scale * square_mask, dim=(-1, -2))
+    mean = torch.sum(errors * square_mask, dim=-1)
     mean = mean / denom[..., None]
     mean = torch.sum(mean, dim=-1)
-
+    mean = mean * scale
+    check_inf_nan([denom, mean])
     # Average over the batch dimensions
     mean = torch.mean(mean)
 

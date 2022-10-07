@@ -7,7 +7,7 @@ model:
 data:
   data_module:
     data_loaders:
-      num_workers: 8
+      num_workers: 10
 
 optimizer:
   lr: 0.001
