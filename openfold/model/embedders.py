@@ -129,7 +129,7 @@ class InputEmbedder(nn.Module):
             for params in self.esm_model.parameters():
                 params.requires_grad = False
             # logging.info(f"freezing language model parameters")
-
+            
         # logging.info("feeding tf esm into esm encoder")
         self.tf_squeeze_flag = False
         if tf.ndim == 2:
@@ -295,9 +295,6 @@ class GVPEmbedder(nn.Module):
             print("will use GVP to featurize node embedding")
             self.gvp_embedding = GVPEncoder(**gvp_gnn_args)
             self.post_gvp = Linear(gvp_gnn_args["node_hidden_dim_scalar"], self.c_m)
-        else:
-            self.idx_embedding = nn.Embedding(num_embeddings=257,
-                                        embedding_dim=c_m)
 
         # RPE stuff
         self.relpos_k = relpos_k
@@ -348,7 +345,7 @@ class GVPEmbedder(nn.Module):
         """
         # _dtype = torch.get_default_dtype()
         _dtype = tf.dtype
-        # oh = oh..type(torch.float32)
+        # oh = oh.type(torch.float32)
         pair_emb = self.relpos(ri.type(_dtype))
         mask = mask.bool()
 

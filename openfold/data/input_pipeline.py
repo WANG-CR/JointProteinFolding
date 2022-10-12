@@ -28,10 +28,10 @@ def nonensembled_transform_fns(mode_cfg):
     transforms = [
         data_transforms.cast_to_64bit_ints,
         data_transforms.squeeze_features,
+        data_transforms.get_backbone_coords,
         data_transforms.make_seq_mask,
         data_transforms.make_seq_feat,
         data_transforms.make_atom14_masks,
-        data_transforms.get_backbone_coords,
     ] 
 
     # if mode_cfg.supervised:

@@ -4,6 +4,7 @@ logging.basicConfig(level=logging.INFO)
 import os
 
 import torch
+import torch.nn.functional as F
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks.lr_monitor import LearningRateMonitor
 from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
@@ -13,18 +14,18 @@ from pytorch_lightning.plugins.training_type import DeepSpeedPlugin, DDPPlugin
 from openfold.config import model_config
 from openfold.data.data_modules import OpenFoldDataModule
 from openfold.model.model import AlphaFold
+from openfold.model.model_inv import AlphaFoldInverse
 from openfold.np import residue_constants
 from openfold.utils.argparse import remove_arguments
 from openfold.utils.callbacks import EarlyStoppingVerbose
 from openfold.utils.exponential_moving_average import ExponentialMovingAverage
-from openfold.utils.loss import AlphaFoldLoss, lddt_ca, compute_drmsd
+from openfold.utils.loss import AlphaFoldLoss, lddt_ca, compute_drmsd, InverseLoss
 from openfold.utils.lr_schedulers import AlphaFoldLRScheduler
 from openfold.utils.seed import seed_everything
 from openfold.utils.superimposition import superimpose
 from openfold.utils.tensor_utils import tensor_tree_map
 from openfold.utils.validation_metrics import gdt_ts, gdt_ha
 from openfold.utils.zero_to_fp32 import get_fp32_state_dict_from_zero_checkpoint
-
 import debugger
 
 
@@ -32,16 +33,21 @@ class OpenFoldWrapper(pl.LightningModule):
     def __init__(self, config):
         super(OpenFoldWrapper, self).__init__()
         self.config = config
-        self.model = AlphaFold(config)
-        self.loss = AlphaFoldLoss(config.loss)
-        self.ema = ExponentialMovingAverage(
-            model=self.model, decay=config.ema.decay
+        self.f_model = AlphaFold(config)
+        self.g_model = AlphaFoldInverse(config)
+        self.f_loss = AlphaFoldLoss(config.loss)
+        # self.g_loss = InverseLoss(config.loss)
+        self.f_ema = ExponentialMovingAverage(
+            model=self.f_model, decay=config.ema.decay
         )
-
+        self.g_ema = ExponentialMovingAverage(
+            model=self.g_model, decay=config.ema.decay
+        )
+        self.f_model.input_embedder.esm_model.requires_grad_(False)
         self.cached_weights = None
 
     def forward(self, batch):
-        return self.model(batch)
+        return self.f_model(batch), self.g_model(batch)
 
     def _log(self, loss_breakdown, batch, outputs, train=True):
         phase = "train" if train else "val"
@@ -74,25 +80,53 @@ class OpenFoldWrapper(pl.LightningModule):
             )
 
     def training_step(self, batch, batch_idx):
-        if(self.ema.device != batch["aatype"].device):
-            self.ema.to(batch["aatype"].device)
+        if(self.f_ema.device != batch["aatype"].device):
+            self.f_ema.to(batch["aatype"].device)
+            self.g_ema.to(batch["aatype"].device)
 
+        # torch.cuda.empty_cache()
+        
         # Run the model
-        outputs = self(batch)
+        f_outputs, g_outputs = self(batch)
         
         # Remove the recycling dimension
         batch = tensor_tree_map(lambda t: t[..., -1], batch)
-        # Compute loss
-        loss, loss_breakdown = self.loss(
-            outputs, batch, _return_breakdown=True
-        )
 
+
+        # Compute f loss
+        f_loss, f_loss_breakdown = self.f_loss(
+            f_outputs, batch, _return_breakdown=True
+        )
         # Log it
-        self._log(loss_breakdown, batch, outputs)
+        self._log(f_loss_breakdown, batch, f_outputs)
+
+
+        # Compute g loss
+        logits = g_outputs["sm"]["seqs_logits"][-1]
+        aatype = batch["aatype"]
+        masked_pred = logits.masked_select(batch["seq_mask"].unsqueeze(-1).to(torch.bool)).view(-1, residue_constants.restype_num + 1) # Nl x 21
+        masked_target = aatype.masked_select(batch["seq_mask"].to(torch.bool)).view(-1)    # Nl
+
+        ce = F.cross_entropy(masked_pred, masked_target.long())
+        ppl = ce.exp()
+        dummy_loss = sum([v.float().sum() for v in g_outputs["sm"].values()])    # calculate other loss (pl distributed training)
+        # Log it
+        self.log('train/g_loss', ce, on_step=True, on_epoch=False, prog_bar=False, logger=True)
+        self.log('train/g_PPL', ppl, on_step=True, on_epoch=False, prog_bar=True, logger=True)
+        
+        self.log('train/g_loss_epoch', ce, on_step=False, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
+        self.log('train/g_PPL_epoch', ppl, on_step=False, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
+
+        g_loss = ce + 0. * dummy_loss
+        
+        # alpha = 0.5
+        # loss = alpha * f_loss + (1-alpha) * g_loss
+        loss = f_loss + g_loss
         return loss
 
     def on_before_zero_grad(self, *args, **kwargs):
-        self.ema.update(self.model)
+        self.f_ema.update(self.f_model)
+        self.g_ema.update(self.g_model)
 
     def validation_step(self, batch, batch_idx):
         # At the start of validation, load the EMA weights
@@ -101,25 +135,57 @@ class OpenFoldWrapper(pl.LightningModule):
             # than copies. Therefore, we need to clone them before calling 
             # load_state_dict().
             clone_param = lambda t: t.detach().clone()
-            self.cached_weights = tensor_tree_map(clone_param, self.model.state_dict())
-            self.model.load_state_dict(self.ema.state_dict()["params"])
+            self.f_cached_weights = tensor_tree_map(clone_param, self.f_model.state_dict())
+            self.f_model.load_state_dict(self.f_ema.state_dict()["params"])
+            self.g_cached_weights = tensor_tree_map(clone_param, self.g_model.state_dict())
+            self.g_model.load_state_dict(self.g_ema.state_dict()["params"])
 
         # Run the model
-        outputs = self(batch)
+        f_outputs, g_outputs = self(batch)
         batch = tensor_tree_map(lambda t: t[..., -1], batch)
 
         # Compute loss and other metrics
         batch["use_clamped_fape"] = 0.
-        _, loss_breakdown = self.loss(
-            outputs, batch, _return_breakdown=True
+        f_loss, f_loss_breakdown = self.f_loss(
+            f_outputs, batch, _return_breakdown=True
         )
+        self._log(f_loss_breakdown, batch, f_outputs, train=False)
 
-        self._log(loss_breakdown, batch, outputs, train=False)
+
+        # compute g loss
+        logits = g_outputs["sm"]["seqs_logits"][-1]
+        aatype = batch["aatype"]
+
+        # only last step computed as ce
+        masked_pred = logits.masked_select(batch["seq_mask"].unsqueeze(-1).to(torch.bool)).view(-1, residue_constants.restype_num+1) # Nl x 21
+        masked_target = aatype.masked_select(batch["seq_mask"].to(torch.bool)).view(-1)    # Nl
+        ce = F.cross_entropy(masked_pred, masked_target)
+        ppl = ce.exp()
+        
+        logits[..., -1] = -9999 # zero out UNK.
+        sampled_seqs = logits.argmax(dim=-1)    # greedy sampling
+        masked_sampled_seqs = sampled_seqs.masked_select(batch["seq_mask"].to(torch.bool)).view(-1) # N x Nl
+        aars = masked_sampled_seqs.eq(masked_target).float().mean()
+
+        self.log('val/g_loss', ce, on_step=False, on_epoch=True, prog_bar=False, logger=False, sync_dist=True)
+        self.log('val/g_PPL', ppl, on_step=False, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)    # show
+        self.log('val/g_AAR', aars, on_step=False, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)  
+
+        # loss = ce + f_loss
+        # self.log(
+        #         f"val/loss", 
+        #         loss, 
+        #         on_step=False, on_epoch=True, logger=True, sync_dist=True
+        #     )
+
         
     def validation_epoch_end(self, _):
         # Restore the model weights to normal
-        self.model.load_state_dict(self.cached_weights)
-        self.cached_weights = None
+        self.f_model.load_state_dict(self.f_cached_weights)
+        self.f_cached_weights = None
+
+        self.g_model.load_state_dict(self.g_cached_weights)
+        self.g_cached_weights = None
 
     def _compute_validation_metrics(self, 
         batch, 
@@ -178,7 +244,7 @@ class OpenFoldWrapper(pl.LightningModule):
         scheduler_config = self.config.scheduler
         
         optimizer = torch.optim.Adam(
-            self.model.parameters(),
+            [{"params":self.f_model.parameters()},{"params":self.g_model.parameters()}],
             lr=optim_config.lr,
             eps=optim_config.eps,
         )
@@ -199,19 +265,23 @@ class OpenFoldWrapper(pl.LightningModule):
         }
 
     def on_load_checkpoint(self, checkpoint):
-        self.ema.load_state_dict(checkpoint["ema"])
+        self.f_ema.load_state_dict(checkpoint["f_ema"])
+        self.g_ema.load_state_dict(checkpoint["g_ema"])
 
     def on_save_checkpoint(self, checkpoint):
-        checkpoint["ema"] = self.ema.state_dict()
+        checkpoint["f_ema"] = self.f_ema.state_dict()
+        checkpoint["g_ema"] = self.g_ema.state_dict()
 
     def backward(self, loss, optimizer, optimizer_idx):
         loss.backward()
-        for n, p in self.model.named_parameters():
+        for n, p in self.f_model.named_parameters():
             if p.grad is None:
-                logging.warning(f'f: {n} has no grad')
+                print(f'f: {n} has no grad')
             else:
-                logging.warning(f'f: {n} has grad')
-
+                print(f'f: {n} has grad')
+        for n, p in self.g_model.named_parameters():
+            if p.grad is None:
+                print(f'g: {n} has no grad')
 
 def main(args):
     if(args.seed is not None):
@@ -241,14 +311,24 @@ def main(args):
     data_module.setup()
     callbacks = []
     if(args.checkpoint_every_epoch):
+        if args.deepspeed_config_path is not None or not args.wandb:
+            dirpath = None
+        else:
+            dirpath = os.path.join(
+                args.output_dir,
+                args.wandb_project,
+                args.wandb_version,
+                "checkpoints",
+            )
         mc = ModelCheckpoint(
             filename="epoch{epoch:02d}-step{step}-val_loss={val/loss:.3f}",
+            dirpath=dirpath,
             auto_insert_metric_name=False,
             monitor="val/loss",
             mode="min",
             every_n_epochs=1,
             save_last=False,
-            save_top_k=10,
+            save_top_k=30,
         )
         callbacks.append(mc)
 
@@ -330,13 +410,14 @@ def bool_type(bool_str: str):
 
 
 if __name__ == "__main__":
+    os.environ["CUDA_LAUNCH_BLOCKING"]="1"
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "train_data_dir", type=str,
+        "--train_data_dir", type=str, default=None,
         help="Directory containing training mmCIF files"
     )
     parser.add_argument(
-        "output_dir", type=str,
+        "--output_dir", type=str, default='invfold_outputs',
         help=(
             "Directory in which to output checkpoints, logs, etc. Ignored "
             "if not on rank 0"
@@ -348,10 +429,6 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--val_data_dir", type=str, default=None,
-        help="Directory containing validation mmCIF files"
-    )
-    parser.add_argument(
-        "--predict_data_dir", type=str, default=None,
         help="Directory containing validation mmCIF files"
     )
     parser.add_argument(
@@ -483,6 +560,9 @@ if __name__ == "__main__":
             args.wandb_version = f"{args.config_preset}-{args.wandb_version}"
         if args.experiment_name is None:
             args.experiment_name = args.wandb_version
+
+    logging.info(f"args train data dir is {args.train_data_dir}")
+    logging.info(f"args yaml config is {args.yaml_config_preset}")
 
     # This re-applies the training-time filters at the beginning of every epoch
     args.reload_dataloaders_every_n_epochs = 1

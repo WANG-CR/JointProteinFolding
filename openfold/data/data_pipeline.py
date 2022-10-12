@@ -72,9 +72,9 @@ def make_protein_features(
     all_atom_positions = protein_object.atom_positions # [num_res, num_atom_type, 3]
     all_atom_mask = protein_object.atom_mask # [num_res, num_atom_type]
 
-    if normalize_coordinates:
-        xyz_mean = np.sum(all_atom_positions, (0, 1), keepdims=True) / np.sum(all_atom_mask)
-        all_atom_positions = all_atom_positions - xyz_mean
+    # if normalize_coordinates:
+    #     xyz_mean = np.sum(all_atom_positions, (0, 1), keepdims=True) / np.sum(all_atom_mask)
+    #     all_atom_positions = all_atom_positions - xyz_mean
 
     pdb_feats["all_atom_positions"] = all_atom_positions.astype(np.float32)
     pdb_feats["all_atom_mask"] = all_atom_mask.astype(np.float32)

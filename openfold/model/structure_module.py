@@ -735,7 +735,7 @@ class StructureModule(nn.Module):
             # [*, N, C_s]
             seqs_emb = self.seq_emb_nn(seqs)
             # only updating the unknown part
-            check_inf_nan(seqs_emb)
+            # check_inf_nan(seqs_emb)
             s = s + seqs_emb
             s = s + self.ipa(s, z, rigids, mask)
             s = self.ipa_dropout(s)
@@ -744,7 +744,7 @@ class StructureModule(nn.Module):
 
             # [*, N], only updating the unknown part
             bb_update = self.bb_update(s)
-            check_inf_nan(bb_update)
+            # check_inf_nan(bb_update)
             rigids = rigids.compose_q_update_vec(bb_update)
             
 
@@ -769,7 +769,7 @@ class StructureModule(nn.Module):
             # [*, N, 21]
             seqs_logits = self.seq_resnet(s, s_initial, seqs_emb)
             seqs = F.softmax(seqs_logits, dim=-1)
-            check_inf_nan([seqs_logits, seqs])
+            # check_inf_nan([seqs_logits, seqs])
             scaled_rigids = rigids.scale_translation(self.trans_scale_factor)
 
             aatype_dist = seqs

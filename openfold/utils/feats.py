@@ -72,7 +72,10 @@ def compute_pair_rbf(
     N = X[:,:,0,:]
     C = X[:,:,2,:]
     O = X[:,:,3,:]
-
+    # print(f"Ca is {Ca[0, 0, ...]}")
+    # print(f"N is {N[0, 0, ...]}")
+    # print(f"C is {C[0, 0, ...]}")
+    # print(f"O is {O[0, 0, ...]}")
     RBF_all = []
     RBF_all.append(rbf_from_two_array(Ca, Ca)) #Ca-Ca
     RBF_all.append(rbf_from_two_array(N, N)) #N-N

@@ -21,7 +21,7 @@ from openfold.np import residue_constants
 from openfold.utils.argparse import remove_arguments
 from openfold.utils.callbacks import EarlyStoppingVerbose
 from openfold.utils.exponential_moving_average import ExponentialMovingAverage
-from openfold.utils.loss import AlphaFoldLoss, lddt_ca, compute_drmsd, seqs_loss
+from openfold.utils.loss import AlphaFoldLoss, lddt_ca, compute_drmsd, seqs_loss, InverseLoss
 from openfold.utils.lr_schedulers import AlphaFoldLRScheduler
 from openfold.utils.seed import seed_everything
 from openfold.utils.superimposition import superimpose
@@ -38,7 +38,7 @@ class OpenFoldWrapper(pl.LightningModule):
         self.config = config
         self.model = AlphaFoldInverse(config)
         # self.dummyloss = AlphaFoldLoss(config.loss)
-
+        self.loss = InverseLoss(config.loss)
         self.ema = ExponentialMovingAverage(
             model=self.model, decay=config.ema.decay
         )
@@ -64,20 +64,6 @@ class OpenFoldWrapper(pl.LightningModule):
                     on_step=False, on_epoch=True, logger=True,
                 )
 
-        with torch.no_grad():
-            other_metrics = self._compute_validation_metrics(
-                batch, 
-                outputs,
-                superimposition_metrics=(not train)
-            )
-
-        for k,v in other_metrics.items():
-            self.log(
-                f"{phase}/{k}", 
-                v, 
-                on_step=False, on_epoch=True, logger=True
-            )
-
     def training_step(self, batch, batch_idx):
         if(self.ema.device != batch["aatype"].device):
             self.ema.to(batch["aatype"].device)
@@ -89,26 +75,41 @@ class OpenFoldWrapper(pl.LightningModule):
         logits = outputs["sm"]["seqs_logits"][-1]
         aatype = batch["aatype"][..., -1]
         
-        # # only last step computed as ce
-        # logging.info(f'seq mask shape is {batch["seq_mask"].shape}')
-        # logging.info(f'logits shape is {logits.shape}')
-        # logging.info(f'seq mask type is {batch["seq_mask"].unsqueeze(-1)}')
-        # logging.info(f'seq mask type after converting is {batch["seq_mask"][..., -1].unsqueeze(-1).to(torch.bool)}')
+
+
+        ## using self.loss
+        # # logging.info(f"logits is {logits}")
+        # # logging.info(f"aatype is {aatype}")
+        # # # only last step computed as ce
+        # masked_pred = logits.masked_select(batch["seq_mask"][..., -1].unsqueeze(-1).to(torch.bool)).view(-1, restype_num + 1) # Nl x 21
+        # masked_target = aatype.masked_select(batch["seq_mask"][..., -1].to(torch.bool)).view(-1)    # Nl
+        # # logging.info(f"masked logits is {masked_pred[1, ...]}")
+        # # logging.info(f"masked logits shape is {masked_pred.shape}")
+        # # logging.info(f"masked_target shape is {masked_target.shape}")
+        # batch = tensor_tree_map(lambda t: t[..., -1], batch)
+        # loss, loss_breakdown = self.loss(
+        #     outputs, batch, _return_breakdown=True
+        # )
+
+        # # Log it
+        # self._log(loss_breakdown, batch, outputs)
+        # return loss
+        # logging.info(f"masked aatype is {masked_target.shape}")
+        # ce = softmax_cross_entropy(masked_pred, masked_target)
         masked_pred = logits.masked_select(batch["seq_mask"][..., -1].unsqueeze(-1).to(torch.bool)).view(-1, restype_num + 1) # Nl x 21
         masked_target = aatype.masked_select(batch["seq_mask"][..., -1].to(torch.bool)).view(-1)    # Nl
 
-        # ce = softmax_cross_entropy(masked_pred, masked_target)
         ce = F.cross_entropy(masked_pred, masked_target.long())
         ppl = ce.exp()
 
         dummy_loss = sum([v.float().sum() for v in outputs["sm"].values()])    # calculate other loss (pl distributed training)
 
         # Log it
-        self.log('train/loss', ce, on_step=True, on_epoch=False, prog_bar=False, logger=True)
-        self.log('train/PPL', ppl, on_step=True, on_epoch=False, prog_bar=True, logger=True)
+        self.log('train/g_loss', ce, on_step=True, on_epoch=False, prog_bar=False, logger=True)
+        self.log('train/g_PPL', ppl, on_step=True, on_epoch=False, prog_bar=True, logger=True)
         
-        self.log('train/loss_epoch', ce, on_step=False, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
-        self.log('train/PPL_epoch', ppl, on_step=False, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
+        self.log('train/g_loss_epoch', ce, on_step=False, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
+        self.log('train/g_PPL_epoch', ppl, on_step=False, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
 
         loss = ce + 0. * dummy_loss
         return loss
@@ -126,29 +127,42 @@ class OpenFoldWrapper(pl.LightningModule):
             self.cached_weights = tensor_tree_map(clone_param, self.model.state_dict())
             self.model.load_state_dict(self.ema.state_dict()["params"])
 
-        # Run the model
         outputs = self(batch)
+        # batch = tensor_tree_map(lambda t: t[..., -1], batch)
+
+        # # use self.loss
+        # # Compute loss and other metrics
+        # batch["use_clamped_fape"] = 0.
+        # _, loss_breakdown = self.loss(
+        #     outputs, batch, _return_breakdown=True
+        # )
+
+        # self._log(loss_breakdown, batch, outputs, train=False)
+
+        # # Run the model
+        # outputs = self(batch)
 
         # only last step computed as ce
         logits = outputs["sm"]["seqs_logits"][-1]
         aatype = batch["aatype"][..., -1]
 
         # only last step computed as ce
-        masked_pred = logits.masked_select(batch["seq_mask"][..., -1].unsqueeze(-1)).view(-1, restype_num+1) # Nl x 21
-        masked_target = aatype.masked_select(batch["seq_mask"][..., -1]).view(-1)    # Nl
+        masked_pred = logits.masked_select(batch["seq_mask"][..., -1].unsqueeze(-1).to(torch.bool)).view(-1, restype_num+1) # Nl x 21
+        masked_target = aatype.masked_select(batch["seq_mask"][..., -1].to(torch.bool)).view(-1)    # Nl
 
         ce = F.cross_entropy(masked_pred, masked_target)
         ppl = ce.exp()
         
         logits[..., -1] = -9999 # zero out UNK.
         sampled_seqs = logits.argmax(dim=-1)    # greedy sampling
-        masked_sampled_seqs = sampled_seqs.masked_select(batch["seq_mask"]).view(-1) # N x Nl
+        masked_sampled_seqs = sampled_seqs.masked_select(batch["seq_mask"][..., -1].to(torch.bool)).view(-1) # N x Nl
         
         aars = masked_sampled_seqs.eq(masked_target).float().mean()
 
+        self.log('val/g_loss', ce, on_step=False, on_epoch=True, prog_bar=False, logger=False, sync_dist=True)
+        self.log('val/g_PPL', ppl, on_step=False, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)    # show
+        self.log('val/g_AAR', aars, on_step=False, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)  
         self.log('val/loss', ce, on_step=False, on_epoch=True, prog_bar=False, logger=False, sync_dist=True)
-        self.log('val/PPL', ppl, on_step=False, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)    # show
-        self.log('val/AAR', aars, on_step=False, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)  
 
 
     def validation_epoch_end(self, _):

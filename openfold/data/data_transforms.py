@@ -745,8 +745,9 @@ def atom37_to_torsion_angles(
 def get_backbone_coords(protein):
     gt_coords = protein["all_atom_positions"]
     n_pos = rc.atom_order["N"]
-    gt_coords_n = gt_coords[..., n_pos, :].unsqueeze(-2) # [*, N, 3]
-
+    gt_coords_n = gt_coords[..., n_pos, :].unsqueeze(-2) # [*, N, 1, 3]
+    # print(f"n_pos index is {n_pos}")
+    # print(f"gt_coords_n value is {gt_coords_n[0,0,...]}")
     ca_pos = rc.atom_order["CA"]
     gt_coords_ca = gt_coords[..., ca_pos, :].unsqueeze(-2) # [*, N, 3]
 

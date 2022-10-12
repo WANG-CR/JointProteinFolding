@@ -1557,11 +1557,15 @@ def seqs_loss(logits, aatype, seq_mask, eps=1e-8, **kwargs):
         seq type loss
     """
     # [traj, *, N_res]
+    # print(f"aatype is shape {aatype.shape}")
+    # print(f"seq_mask is shape {seq_mask.shape}")
     residue_type_one_hot = torch.nn.functional.one_hot(
         aatype,
         residue_constants.restype_num + 1,
     )
+    # print(f"residue_type_one_hot 1 is shape {residue_type_one_hot.shape}")
     residue_type_one_hot = residue_type_one_hot[None]
+    # print(f"residue_type_one_hot 2 is shape {residue_type_one_hot.shape}")
     errors = softmax_cross_entropy(
         logits, residue_type_one_hot
     )
@@ -1569,7 +1573,9 @@ def seqs_loss(logits, aatype, seq_mask, eps=1e-8, **kwargs):
     errors = errors.permute(
         *range(len(errors.shape))[1:-1], 0, -1
     )
+    # seq_mask = [..., -1]
     seq_mask = seq_mask[..., None, :].expand_as(errors)
+    # seq_mask = seq_mask[..., None, -1].expand_as(errors)
     # FP16-friendly averaging. Equivalent to:
     # loss = (
     #     torch.sum(errors * seq_mask, dim=(-1, -2)) /
@@ -1706,6 +1712,97 @@ class AlphaFoldLoss(nn.Module):
                 logits=out["tm_logits"],
                 **{**batch, **out, **self.config.tm},
             )
+
+        cum_loss = 0.
+        losses = {}
+        for loss_name, loss_fn in loss_fns.items():
+            weight = self.config[loss_name].weight
+
+            if weight > 0:
+                loss = loss_fn()
+                if(torch.isnan(loss) or torch.isinf(loss)):
+                    logging.warning(f"{loss_name} loss is NaN. Skipping...")
+                    loss = loss.new_tensor(0., requires_grad=True)
+                cum_loss = cum_loss + weight * loss
+                losses[loss_name] = loss.detach().clone()
+
+        losses["unscaled_loss"] = cum_loss.detach().clone()
+
+        # Scale the loss by the square root of the minimum of the crop size and
+        # the (average) sequence length. See subsection 1.9.
+        # seq_len = torch.mean(batch["seq_length"].float())
+        # crop_len = batch["aatype"].shape[-1]
+        # cum_loss = cum_loss * torch.sqrt(min(seq_len, crop_len))
+
+        losses["loss"] = cum_loss.detach().clone()
+
+        if not _return_breakdown:
+            return cum_loss
+        
+        return cum_loss, losses
+
+
+class InverseLoss(nn.Module):
+    """Aggregation of the various losses described in the supplement"""
+    def __init__(self, config):
+        super(InverseLoss, self).__init__()
+        self.config = config
+
+    def forward(self, out, batch, _return_breakdown=False):
+        # if "violation" not in out.keys() and self.config.violation.weight:
+        #     out["violation"] = find_structural_violations(
+        #         batch,
+        #         out["sm"]["positions"][-1],
+        #         **self.config.violation,
+        #     )
+
+        # if "renamed_atom14_gt_positions" not in out.keys():
+        #     batch.update(
+        #         compute_renamed_ground_truth(
+        #             batch,
+        #             out["sm"]["positions"][-1],
+        #         )
+        #     )
+
+        loss_fns = {
+            # "distogram": lambda: distogram_loss(
+            #     logits=out["distogram_logits"],
+            #     **{**batch, **self.config.distogram},
+            # ),
+            # "experimentally_resolved": lambda: experimentally_resolved_loss(
+            #     logits=out["experimentally_resolved_logits"],
+            #     **{**batch, **self.config.experimentally_resolved},
+            # ),
+            # "fape": lambda: fape_loss(
+            #     out,
+            #     batch,
+            #     self.config.fape,
+            # ),
+            # "lddt": lambda: lddt_loss(
+            #     logits=out["lddt_logits"], # final step in the structure module
+            #     all_atom_pred_pos=out["final_atom_positions"],
+            #     **{**batch, **self.config.lddt},
+            # ),
+            "seqs": lambda: seqs_loss(
+                logits=out["sm"]["seqs_logits"],
+                **{**batch, **self.config.seqs},
+            ),
+            # "supervised_chi": lambda: supervised_chi_loss(
+            #     out["sm"]["angles"], # each step in the structure module
+            #     out["sm"]["unnormalized_angles"],
+            #     **{**batch, **self.config.supervised_chi},
+            # ),
+            # "violation": lambda: violation_loss(
+            #     out["violation"],
+            #     **batch,
+            # ),
+        }
+
+        # if self.config.tm.enabled:
+        #     loss_fns["tm"] = lambda: tm_loss(
+        #         logits=out["tm_logits"],
+        #         **{**batch, **out, **self.config.tm},
+        #     )
 
         cum_loss = 0.
         losses = {}

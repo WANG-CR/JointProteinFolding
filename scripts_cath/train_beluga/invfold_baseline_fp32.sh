@@ -5,14 +5,14 @@
 #SBATCH --gres=gpu:4
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=4
-#SBATCH --time=48:00:00
+#SBATCH --time=24:00:00
 #SBATCH --exclusive
-#SBATCH --output=/home/chuanrui/scratch/research/ProteinFolding/alphafold/output/slurm_log/inverse_baseline.out
-#SBATCH --error=/home/chuanrui/scratch/research/ProteinFolding/alphafold/output/slurm_log/inverse_baseline.err
+#SBATCH --output=/home/chuanrui/scratch/research/ProteinFolding/alphafold/output/slurm_log/inverse_baseline_2.out
+#SBATCH --error=/home/chuanrui/scratch/research/ProteinFolding/alphafold/output/slurm_log/inverse_baseline_2.err
 #SBATCH --qos=unkillable
 
 ENV_NAME=pf2
-module load CUDA/11.3.1
+module load CUDA/11.4
 source activate $ENV_NAME
 echo env done
 
@@ -28,10 +28,10 @@ srun python train_invfold.py --train_data_dir $TRAIN_DIR \
     --val_data_dir $VALID_DIR \
     --seed 2024 \
     --yaml_config_preset yaml_config/inverse.yml \
-    --precision 16 --gpus 4 --log_every_n_steps 50 \
+    --precision 32 --gpus 4 --log_every_n_steps 50 \
     --wandb true \
     --wandb_entity chuanrui \
-    --wandb_version invfold_baseline \
+    --wandb_version invfold_baseline2\
     --wandb_project pf_toy \
-    --deepspeed_config_path deepspeed_config.json \
     --train_epoch_len 1000 \
+        # --deepspeed_config_path deepspeed_config.json \

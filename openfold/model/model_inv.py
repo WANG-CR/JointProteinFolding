@@ -150,9 +150,6 @@ class AlphaFoldInverse(nn.Module):
         #     self.use_mlp = False
         
         self.aux_heads = None
-        # AuxiliaryHeads(
-            # self.config["heads"],
-        # )
 
     def iteration(
         self, feats, m_1_prev, z_prev, x_prev, seqs_prev,
@@ -187,7 +184,7 @@ class AlphaFoldInverse(nn.Module):
 
         # Prep some features
         
-        seq_mask = feats["seq_mask"][..., -1]
+        seq_mask = feats["seq_mask"][..., 0]
         # logging.info(f'feats["coords"] size during iteration is {feats["coords"].shape}')
         pair_mask = seq_mask[..., None] * seq_mask[..., None, :]
         # logging.info(f"pair_mask size during iteration is {pair_mask.shape}")
@@ -195,16 +192,21 @@ class AlphaFoldInverse(nn.Module):
         # logging.info(f'feats["target_feat"] size during iteration is {feats["target_feat"].shape}')
         # logging.info(f'feats["residue_index"] size during iteration is {feats["residue_index"].shape}')
         # logging.info(f'feats["aatype"] size during iteration is {feats["aatype"].shape}')
+        # seq_len = int(feats['seq_mask'][..., 0].sum())
         # logging.info(f"seq mask size during iteration is {feats['seq_mask'][..., -1].shape}")
-
+        # logging.info(f"seq mask sum during iteration is {seq_len}")
+        # logging.info(f'feats["aatype"] during iteration is {feats["aatype"][:, seq_len-2:seq_len+3, 0]}')
+        # logging.info(f'feats["target_feat"] during iteration is {feats["target_feat"][:, seq_len-2:seq_len+3, :, 0]}')
+        # logging.info(f"coords shape is {feats['coords'].shape}")
+        # logging.info(f"coords is {feats['coords'][0, 0, ..., 0]}")
         ## Calculate contact
         ## [*, N, N]
         contact = None
         pair_rbf = compute_pair_rbf(
             feats["coords"][..., 0],    # B, N, 4, 3
-            feats["seq_mask"][..., -1],  # B, N
+            feats["seq_mask"][..., 0],  # B, N
         )
-        # check_inf_nan(pair_rbf)
+        check_inf_nan(pair_rbf)
 
         # pair_rbf = _nan_to_num(pair_rbf)
         # Initialize the seq and pair representations
@@ -219,7 +221,7 @@ class AlphaFoldInverse(nn.Module):
         )
         # m, z = _nan_to_num(m), _nan_to_num(z)
 
-        # check_inf_nan([m,z])
+        check_inf_nan([m,z])
 
         ######################################
         # Thats' all for predicting aatype
@@ -240,7 +242,7 @@ class AlphaFoldInverse(nn.Module):
         )
         # m, z, s = _nan_to_num(m), _nan_to_num(z), _nan_to_num(s)
 
-        # check_inf_nan([m, z, s])
+        check_inf_nan([m, z, s])
         # print('m,z, s', m.dtype, z.dtype, s.dtype)
 
         # outputs["pair"] = z
@@ -353,6 +355,223 @@ class AlphaFoldInverse(nn.Module):
                 # only run once
                 outputs, m_1_prev, z_prev, x_prev, seqs_prev = self.iteration(
                     feats,
+                    m_1_prev,
+                    z_prev,
+                    x_prev,
+                    seqs_prev,
+                    initial_rigids=initial_rigids,
+                    initial_seqs=None,
+                    _recycle=(num_iters > 1),
+                    denoise_feats=denoise_feats,
+                )
+                # outputs.update(self.aux_heads(outputs))
+                recycle_outputs.append(outputs)
+
+        outputs = copy.copy(outputs)
+        # outputs.update(self.aux_heads(outputs)) # done in the loop
+        # outputs["recycle_outputs"] = recycle_outputs
+
+        # logits = outputs["sm"]["seqs_logits"]
+        return outputs
+    
+    def iteration_h(
+        self, feats, coords_bb, m_1_prev, z_prev, x_prev, seqs_prev,
+        initial_rigids=None,
+        initial_seqs=None,
+        _recycle=False,
+        denoise_feats=None,
+    ):
+        """
+        Required 'feats' keys w/ shape:
+            - seq_mask: B, N
+            - coords: B, N, 4, 3
+            - ss_feat: B, N, C
+            - residue_index: B, N
+            - aatype: B, N (which is not used during forward)
+        """
+        # Primary output dictionary
+        outputs = {}
+
+        # This needs to be done manually for DeepSpeed's sake
+        # Ignore it if you are using FP32.
+        dtype = next(self.parameters()).dtype
+        #print('model dtype', dtype)
+        for k in feats:
+            #print(feats[k].dtype)
+            if not torch.is_tensor(feats[k]):
+                continue
+            if feats[k].dtype == torch.float32:
+                feats[k] = feats[k].to(dtype=dtype)
+
+        ##### Grab some data about the input: Disabled now
+
+        # Prep some features
+        
+        seq_mask = feats["seq_mask"][..., 0]
+        # logging.info(f'feats["coords"] size during iteration is {feats["coords"].shape}')
+        pair_mask = seq_mask[..., None] * seq_mask[..., None, :]
+        # logging.info(f"pair_mask size during iteration is {pair_mask.shape}")
+        # # check_inf_nan(feats["coords"])
+        # logging.info(f'feats["target_feat"] size during iteration is {feats["target_feat"].shape}')
+        # logging.info(f'feats["residue_index"] size during iteration is {feats["residue_index"].shape}')
+        # logging.info(f'feats["aatype"] size during iteration is {feats["aatype"].shape}')
+        # seq_len = int(feats['seq_mask'][..., 0].sum())
+        # logging.info(f"seq mask size during iteration is {feats['seq_mask'][..., -1].shape}")
+        # logging.info(f"seq mask sum during iteration is {seq_len}")
+        # logging.info(f'feats["aatype"] during iteration is {feats["aatype"][:, seq_len-2:seq_len+3, 0]}')
+        # logging.info(f'feats["target_feat"] during iteration is {feats["target_feat"][:, seq_len-2:seq_len+3, :, 0]}')
+        # logging.info(f"coords shape is {feats['coords'].shape}")
+        # logging.info(f"coords is {feats['coords'][0, 0, ..., 0]}")
+        ## Calculate contact
+        ## [*, N, N]
+        contact = None
+        logging.info(f"coords_bb shape is {coords_bb.shape}")
+        pair_rbf = compute_pair_rbf(
+            coords_bb,    # B, N, 4, 3
+            feats["seq_mask"][..., 0],  # B, N
+        )
+        check_inf_nan(pair_rbf)
+
+        # pair_rbf = _nan_to_num(pair_rbf)
+        # Initialize the seq and pair representations
+        # m: [*, N, C_m]
+        # z: [*, N, N, C_z]
+        m, z = self.input_embedder( # use gvp or not
+            feats["target_feat"][..., 0],
+            feats["residue_index"][..., 0],
+            pair_rbf,
+            coords=coords_bb,
+            mask=seq_mask
+        )
+        # m, z = _nan_to_num(m), _nan_to_num(z)
+
+        check_inf_nan([m,z])
+
+        ######################################
+        # Thats' all for predicting aatype
+        # No recycle, so comment the rest out
+        ######################################
+
+        # Run sequence + pair embeddings through the trunk of the network
+        # m: [*, N, C_m]
+        # z: [*, N, N, C_z]
+        # s: [*, N, C_s]
+        m, z, s = self.evoformer(
+            m,
+            z,
+            seq_mask=seq_mask.to(dtype=m.dtype),
+            pair_mask=pair_mask.to(dtype=z.dtype),
+            chunk_size=self.globals.chunk_size,
+            _mask_trans=self.config._mask_trans,
+        )
+        # m, z, s = _nan_to_num(m), _nan_to_num(z), _nan_to_num(s)
+
+        check_inf_nan([m, z, s])
+        # print('m,z, s', m.dtype, z.dtype, s.dtype)
+
+        # outputs["pair"] = z
+        # outputs["single"] = s
+
+        ###### Never compute latent
+       
+        # Predict 3D structure
+        if self.use_mlp:
+            logits = self.mlp(s)
+            outputs["sm"] = {}
+            outputs["sm"]["seqs_logits"] = logits.unsqueeze(0)
+        else:
+            outputs["sm"] = self.structure_module(
+                s,
+                z,
+                feats["aatype"][..., 0],    # never mind that
+                mask=feats["seq_mask"][..., -1].to(dtype=s.dtype),
+                initial_rigids=initial_rigids,
+                initial_seqs=initial_seqs,
+                denoise_feats=denoise_feats,
+            )
+
+        # [*, N, C_m]
+        m_1_prev = m
+
+        # [*, N, N, C_z]
+        z_prev = z
+
+        # [*, N, 37, 3]
+        x_prev = None   #outputs["final_atom_positions"]
+        
+        seqs_prev = None #outputs["sm"]["seqs"][-1]
+
+        return outputs, m_1_prev, z_prev, x_prev, seqs_prev
+
+    def forward_h(self, batch, coords):
+        """
+        Args:
+            batch:
+                Dictionary of arguments outlined in Algorithm 2. Keys must
+                include the official names of the features in the
+                supplement subsection 1.2.9.
+
+                The final dimension of each input must have length equal to
+                the number of recycling iterations.
+
+                Features (without the recycling dimension):
+
+                    "aatype" ([*, N_res]):
+                        Contrary to the supplement, this tensor of residue
+                        indices is not one-hot.
+                    "target_feat" ([*, N_res, C_tf])
+                        One-hot encoding of the target sequence. C_tf is
+                        config.model.input_embedder.tf_dim.
+                    "residue_index" ([*, N_res])
+                        Tensor whose final dimension consists of
+                        consecutive indices from 0 to N_res.
+                    "seq_mask" ([*, N_res])
+                        1-D sequence mask
+                    "pair_mask" ([*, N_res, N_res])
+                        2-D pair mask
+        """
+        # Initialize recycling embeddings
+        m_1_prev, z_prev, x_prev = None, None, None
+        seqs_prev = None
+        
+        # denoise feats
+        # it is empty if denoise_enabled is False
+        denoise_feats = {}
+
+        # Disable activation checkpointing for the first few recycling iters
+        is_grad_enabled = torch.is_grad_enabled()
+        self._disable_activation_checkpointing()
+
+        # Main recycling loop
+        # num_iters = batch["aatype"].shape[-1]
+        recycle_outputs = []
+        num_iters = 1
+
+        # dummy disable recycling
+        for cycle_no in range(num_iters):
+            # Select the features for the current recycling cycle
+            
+            # fetch_cur_batch = lambda t: t[..., cycle_no]
+            # feats = tensor_tree_map(fetch_cur_batch, batch)
+            feats = batch
+            
+            # Enable grad iff we're training and it's the final recycling layer
+            is_final_iter = cycle_no == (num_iters - 1)
+            with torch.set_grad_enabled(is_grad_enabled and is_final_iter):
+                if is_final_iter:
+                    self._enable_activation_checkpointing()
+                    # Sidestep AMP bug (PyTorch issue #65766)
+                    if torch.is_autocast_enabled():
+                        torch.clear_autocast_cache()
+                
+                # identity rigid.
+                initial_rigids = None
+
+                # Run the next iteration of the model
+                # only run once
+                outputs, m_1_prev, z_prev, x_prev, seqs_prev = self.iteration_h(
+                    feats,
+                    coords, 
                     m_1_prev,
                     z_prev,
                     x_prev,
