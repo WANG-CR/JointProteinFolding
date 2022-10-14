@@ -5,10 +5,10 @@
 #SBATCH --gres=gpu:4
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=4
-#SBATCH --time=48:00:00
+#SBATCH --time=72:00:00
 #SBATCH --exclusive
-#SBATCH --output=/home/chuanrui/scratch/research/ProteinFolding/alphafold/output/slurm_log/replace_baseline.out
-#SBATCH --error=/home/chuanrui/scratch/research/ProteinFolding/alphafold/output/slurm_log/replace_baseline.err
+#SBATCH --output=/home/chuanrui/scratch/research/ProteinFolding/alphafold/output/slurm_log/replace_baseline_v2.out
+#SBATCH --error=/home/chuanrui/scratch/research/ProteinFolding/alphafold/output/slurm_log/replace_baseline_v2.err
 #SBATCH --qos=unkillable
 
 ENV_NAME=pf2
@@ -30,7 +30,7 @@ srun python train_protein.py $TRAIN_DIR $OUTPUT_DIR \
     --precision 16 --gpus 4 --log_every_n_steps 50 \
     --wandb true \
     --wandb_entity chuanrui \
-    --wandb_version replace_baseline \
+    --wandb_version replace_baseline_v2 \
     --wandb_project pf_toy \
     --deepspeed_config_path deepspeed_config.json \
     --train_epoch_len 1000 \

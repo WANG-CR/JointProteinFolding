@@ -17,7 +17,7 @@ from openfold.model.triangular_multiplicative_update import (
     TriangleMultiplicationIncoming,
 )
 from openfold.utils.checkpointing import checkpoint_blocks
-
+from openfold.utils.loss import check_inf_nan
 
 class EvoformerBlock(nn.Module):
     def __init__(self,
@@ -268,7 +268,8 @@ class EvoformerStack(nn.Module):
             args=(m, z),
             blocks_per_ckpt=self.blocks_per_ckpt if self.training else None,
         )
-
+        check_inf_nan(z)
+        check_inf_nan(m)
         s = self.linear(m)
-
+        check_inf_nan(s)
         return m, z, s

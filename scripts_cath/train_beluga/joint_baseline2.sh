@@ -28,10 +28,10 @@ srun python train_joint2.py --train_data_dir $TRAIN_DIR \
     --val_data_dir $VALID_DIR \
     --seed 2024 \
     --yaml_config_preset yaml_config/joint.yml \
-    --precision 16 --gpus 4 --log_every_n_steps 50 \
+    --precision 32 --gpus 1 --log_every_n_steps 50 \
     --wandb true \
     --wandb_entity chuanrui \
     --wandb_version joint_baseline_v2 \
     --wandb_project pf_toy \
     --train_epoch_len 1000 \
-    --deepspeed_config_path deepspeed_config_zero1.json \
+    --deepspeed_config_path deepspeed_config_32_zero1.json \

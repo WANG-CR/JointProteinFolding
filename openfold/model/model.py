@@ -17,7 +17,7 @@ from openfold.model.structure_module import StructureModule
 from openfold.utils.loss import compute_contact_ca
 from openfold.utils.tensor_utils import dict_multimap, tensor_tree_map
 from openfold.utils.rigid_utils import Rigid
-
+from openfold.utils.loss import check_inf_nan
 
 class AlphaFold(nn.Module):
     """
@@ -89,7 +89,8 @@ class AlphaFold(nn.Module):
             seqs_prev,
             
         )
-
+        check_inf_nan(m)
+        check_inf_nan(z)
         # Initialize the recycling embeddings, if needs be
         if None in [m_1_prev, z_prev]:
             # [*, N, C_m]
@@ -167,6 +168,8 @@ class AlphaFold(nn.Module):
         outputs["pair"] = z
         outputs["single"] = s
 
+        check_inf_nan(s)
+        check_inf_nan(z)
         # Predict 3D structure
         gt_angles = feats["torsion_angles_sin_cos"]
         # Possible leakage

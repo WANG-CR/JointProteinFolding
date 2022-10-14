@@ -696,17 +696,18 @@ class StructureModule(nn.Module):
         if mask is None:
             # [*, N]
             mask = s.new_ones(s.shape[:-1])
-
+        check_inf_nan(s)
         # [*, N, C_s]
         s = self.layer_norm_s(s)
-
+        check_inf_nan(s)
         # [*, N, N, C_z]
         z = self.layer_norm_z(z)
 
         # [*, N, C_s]
         s_initial = s
         s = self.linear_in(s)
-
+    
+        check_inf_nan(s)
         # [*, N]
         if initial_rigids is not None:
             rigids = initial_rigids
@@ -735,16 +736,21 @@ class StructureModule(nn.Module):
             # [*, N, C_s]
             seqs_emb = self.seq_emb_nn(seqs)
             # only updating the unknown part
-            # check_inf_nan(seqs_emb)
+            check_inf_nan(seqs_emb)
             s = s + seqs_emb
+            
             s = s + self.ipa(s, z, rigids, mask)
+            check_inf_nan(s)
             s = self.ipa_dropout(s)
+            check_inf_nan(s)
             s = self.layer_norm_ipa(s)
+            check_inf_nan(s)
             s = self.transition(s)
 
+            check_inf_nan(s)
             # [*, N], only updating the unknown part
             bb_update = self.bb_update(s)
-            # check_inf_nan(bb_update)
+            check_inf_nan(bb_update)
             rigids = rigids.compose_q_update_vec(bb_update)
             
 

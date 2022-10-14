@@ -33,5 +33,5 @@ srun python train_protein.py $TRAIN_DIR $OUTPUT_DIR \
     --wandb_version replace_baseline_continue \
     --wandb_project pf_toy \
     --deepspeed_config_path deepspeed_config.json \
-    --train_epoch_len 1000 \
+    --train_epoch_len 200 \
     --resume_from_ckpt /home/chuanrui/scratch/research/ProteinFolding/alphafold/output/pf_toy/replace-replace_baseline/checkpoints/epoch52-step13249-val_loss=2.686.ckpt \
