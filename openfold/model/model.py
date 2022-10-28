@@ -89,7 +89,9 @@ class AlphaFold(nn.Module):
             seqs_prev,
             
         )
+        # print(f"checking m, 1")
         check_inf_nan(m)
+        # print(f"checking z, 2")
         check_inf_nan(z)
         # Initialize the recycling embeddings, if needs be
         if None in [m_1_prev, z_prev]:
@@ -167,11 +169,13 @@ class AlphaFold(nn.Module):
 
         outputs["pair"] = z
         outputs["single"] = s
-
+        # print(f"checking s, 3")
         check_inf_nan(s)
+        # print(f"checking z, 4")
         check_inf_nan(z)
+
         # Predict 3D structure
-        gt_angles = feats["torsion_angles_sin_cos"]
+        # gt_angles = feats["torsion_angles_sin_cos"]
         # Possible leakage
 
         outputs["sm"] = self.structure_module(
@@ -181,13 +185,14 @@ class AlphaFold(nn.Module):
             mask=feats["seq_mask"].to(dtype=s.dtype),
             initial_rigids=initial_rigids,
             initial_seqs=initial_seqs,
-            gt_angles=gt_angles,
+            # gt_angles=gt_angles,
         )
 
         outputs["final_atom_positions"] = atom14_to_atom37(
             outputs["sm"]["positions"][-1], feats
         )
-        outputs["final_atom_mask"] = feats["atom37_atom_exists"]
+        if "atom37_atom_exists" in feats:
+            outputs["final_atom_mask"] = feats["atom37_atom_exists"]
         outputs["final_affine_tensor"] = outputs["sm"]["frames"][-1]
         outputs["final_aatype"] = outputs["sm"]["aatype_"][-1]
         outputs["final_aatype_dist"] = outputs["sm"]["aatype_dist"][-1] 

@@ -80,11 +80,16 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
                     pdb_path=path + ".pdb",
                     chain_id=chain_id,
                 )
+            elif os.path.exists(path + ".fasta"):
+                data = self.data_pipeline.process_fasta(
+                    fasta_path=path + ".fasta",
+                )
             else:
                 raise ValueError("Invalid file type")
 
         else:
-            path = os.path.join(name, name + ".fasta")
+            # path = os.path.join(name, name + ".fasta")
+            path = os.path.join(self.data_dir, name + ".fasta")
             data = self.data_pipeline.process_fasta(
                 fasta_path=path,
             )

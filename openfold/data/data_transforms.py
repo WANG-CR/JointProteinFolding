@@ -156,6 +156,8 @@ def pseudo_beta_fn(aatype, all_atom_positions, all_atom_mask):
 @curry1
 def make_pseudo_beta(protein, prefix=""):
     """Create pseudo-beta (alpha for glycine) position and mask."""
+    if not "all_atom_positions" in protein:
+        return protein
     assert prefix in ["", "template_"]
     (
         protein[prefix + "pseudo_beta"],
@@ -222,6 +224,7 @@ def select_feat(protein, feature_list):
 
 def make_atom14_masks(protein):
     """Construct denser atom positions (14 dimensions instead of 37)."""
+
     restype_atom14_to_atom37 = []
     restype_atom37_to_atom14 = []
     restype_atom14_mask = []
@@ -307,6 +310,9 @@ def make_atom14_masks_np(batch):
 
 def make_atom14_positions(protein):
     """Constructs denser atom positions (14 dimensions instead of 37)."""
+    if not "all_atom_positions" in protein:
+        return protein
+
     residx_atom14_mask = protein["atom14_atom_exists"]
     residx_atom14_to_atom37 = protein["residx_atom14_to_atom37"]
 
@@ -408,6 +414,8 @@ def make_atom14_positions(protein):
 
 
 def atom37_to_frames(protein, eps=1e-8):
+    if not "all_atom_positions" in protein:
+        return protein
     aatype = protein["aatype"]
     all_atom_positions = protein["all_atom_positions"]
     all_atom_mask = protein["all_atom_mask"]
@@ -603,6 +611,9 @@ def atom37_to_torsion_angles(
         "(prefix)torsion_angles_mask" ([*, N_res, 7])
             Torsion angles mask
     """
+    if not "all_atom_positions" in protein:
+        return protein
+
     aatype = protein[prefix + "aatype"]
     all_atom_positions = protein[prefix + "all_atom_positions"]
     all_atom_mask = protein[prefix + "all_atom_mask"]
@@ -743,20 +754,17 @@ def atom37_to_torsion_angles(
 
 
 def get_backbone_coords(protein):
+    if not "all_atom_positions" in protein:
+        return protein
     gt_coords = protein["all_atom_positions"]
     n_pos = rc.atom_order["N"]
     gt_coords_n = gt_coords[..., n_pos, :].unsqueeze(-2) # [*, N, 1, 3]
-    # print(f"n_pos index is {n_pos}")
-    # print(f"gt_coords_n value is {gt_coords_n[0,0,...]}")
     ca_pos = rc.atom_order["CA"]
     gt_coords_ca = gt_coords[..., ca_pos, :].unsqueeze(-2) # [*, N, 3]
-
     c_pos = rc.atom_order["C"]
     gt_coords_c = gt_coords[..., c_pos, :].unsqueeze(-2) # [*, N, 3]
-
     o_pos = rc.atom_order["O"]
     gt_coords_o = gt_coords[..., o_pos, :].unsqueeze(-2) # [*, N, 3]
-
     protein["coords"] = torch.cat((gt_coords_n, gt_coords_ca, gt_coords_c, gt_coords_o), dim=-2)
     # logging.info(f'coords shape is {protein["coords"].shape}')
     return protein
@@ -764,6 +772,8 @@ def get_backbone_coords(protein):
 def get_backbone_frames(protein):
     # DISCREPANCY: AlphaFold uses tensor_7s here. I don't know why.
     # COMMENT: tensor_7s is more compatible with quaternion operations
+    if not "all_atom_positions" in protein:
+        return protein
     protein["backbone_rigid_tensor"] = protein["rigidgroups_gt_frames"][
         ..., 0, :, :
     ]
@@ -776,6 +786,8 @@ def get_backbone_frames(protein):
 
 
 def get_chi_angles(protein):
+    if not "all_atom_positions" in protein:
+        return protein
     dtype = protein["all_atom_mask"].dtype
     protein["chi_angles_sin_cos"] = (
         protein["torsion_angles_sin_cos"][..., 3:, :]

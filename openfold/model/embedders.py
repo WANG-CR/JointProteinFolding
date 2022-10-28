@@ -43,9 +43,10 @@ class InputEmbedder(nn.Module):
         logging.info(f"tf_dim is {tf_dim}")
         self.c_z = c_z
         self.c_m = c_m
-        self.linear_tf_z_i = Linear(tf_dim, c_z)
-        self.linear_tf_z_j = Linear(tf_dim, c_z)
-        self.linear_tf_m = Linear(tf_dim, c_m)
+        if not residue_emb_cfg["enabled"]:
+            self.linear_tf_z_i = Linear(tf_dim, c_z)
+            self.linear_tf_z_j = Linear(tf_dim, c_z)
+            self.linear_tf_m = Linear(tf_dim, c_m)
 
         # RPE stuff
         self.relpos_k = relpos_k
@@ -61,14 +62,15 @@ class InputEmbedder(nn.Module):
 
         self.residue_attn_cfg = residue_attn_cfg
         self.residue_emb_cfg = residue_emb_cfg
-        if self.residue_attn_cfg["enabled"]:
-            attn_input_dim = self.residue_attn_cfg["c_emb"]
-            self.linear_attn = Linear(attn_input_dim, c_z)
+        # if self.residue_attn_cfg["enabled"]:
+        #     attn_input_dim = self.residue_attn_cfg["c_emb"]
+        #     self.linear_attn = Linear(attn_input_dim, c_z)
         if self.residue_emb_cfg["enabled"]:
             logging.warning(f"residue emb is set as: {self.residue_emb_cfg['usage']}")
         if not self.residue_emb_cfg["enabled"]:   
             logging.warning('residue emb cfg not enabled')  
-        self.is_lm_finetune = False
+        # self.is_lm_finetune = False
+        self.is_lm_finetune = True
 
     def relpos(self, ri: torch.Tensor):
         """
@@ -96,31 +98,17 @@ class InputEmbedder(nn.Module):
             if seq[0,i]==1 and count == 0:
                 count += 1 
                 seq[0,i]=2
-        # print(f"seq information is {seq}")
         return count
 
     def _convert_to_esm_index(self, tf: torch.Tensor):
-        # logging.info("converting tf index to esm index")
-        # print(f"sequence index size is {tf.size()}")
-        # print(f"sequence index list is {tf}")
-        # tf_esm = torch.argmax(tf, dim=2) + 4
-
-        # if tf.ndim == 2:
-        #     tf_esm = tf.unsqueeze_(0)
         tf_esm = torch.argmax(tf, dim=-1)
         count = self._mapping(tf_esm)
 
-        # print(f"sequence index size is {tf_esm.size()}")
-        # print(f"sequence index list is {tf_esm}")
-        
         # add bos and eos to the sequence
         cls = torch.tensor([[0]]).to(tf_esm.device)
         tf_esm = torch.cat((cls,tf_esm),1)
-
         eos = torch.tensor([[2-count]]).to(tf_esm.device)
         tf_esm = torch.cat((tf_esm,eos),1)
-        # logging.info(f"sequence after converting is {tf_esm}")
-        # print(f"sequence after converting is {tf_esm}")
         return tf_esm
 
 
@@ -140,21 +128,32 @@ class InputEmbedder(nn.Module):
         tf_H = self._convert_to_esm_index(tf)
         if not self.is_lm_finetune:
             with torch.no_grad():
-                results_H = self.esm_model(tf_H, repr_layers=[33], need_head_weights=True, return_contacts=True)
-            # logging.info(f"not finetuning language model")
+                results = self.esm_model(tf_H, repr_layers=[33], need_head_weights=True, return_contacts=True)
         elif self.is_lm_finetune:
-            results_H = self.esm_model(tf_H, repr_layers=[33], need_head_weights=True, return_contacts=True)
-            # logging.info(f"finetuning language model")
+            results = self.esm_model(tf_H, repr_layers=[33], need_head_weights=True, return_contacts=True)
 
-        tf_H = results_H["representations"][33]
+        tf_H = results["representations"][33]
         tf_H = tf_H[:, 1:-1 ,:]
 
-        # att_H = results_H["attentions"]
-        # print(f"att_H size is {att_H}")
+        # shape [batchSize, nLayer, nHead, nRes, nRes]
+        att_H = results["attentions"][... , 1:-1 ,1:-1]
+        att_H = att_H.mean(1).mean(1)
+
+        # shape [batchsize, Nres, Nres]
+        contact = results["contacts"]
+
+        # shape [batchsize, Nres+2, 33]
+        logits = results["logits"][:, 1:-1 ,:].mean(-1)
+
         if self.tf_squeeze_flag:
             tf_H.squeeze_(0)
 
-        return tf_H
+        return {
+            "tf": tf_H,
+            "attention": att_H,
+            "contact": contact, 
+            "logits": logits,
+        }
 
 
     def forward(
@@ -176,14 +175,17 @@ class InputEmbedder(nn.Module):
             pair_emb:
                 "pair embedding" features [*, N_res, N_res, C_z] 
         """
-        # [*, N_res, c_z]
-        # 
-        tf_emb_i = self.linear_tf_z_i(tf)
-        tf_emb_j = self.linear_tf_z_j(tf)
 
-        # [*, N_res, c_m]
-        tf_m = self.linear_tf_m(tf)
+        tf_emb_i = None
+        tf_emb_j = None
+        tf_m = None
 
+        if not self.residue_emb_cfg["enabled"]:
+            # [*, N_res, c_z]
+            tf_emb_i = self.linear_tf_z_i(tf)
+            tf_emb_j = self.linear_tf_z_j(tf)
+            # [*, N_res, c_m]
+            tf_m = self.linear_tf_m(tf)
         residue_emb_m = None
 
         if self.residue_emb_cfg["enabled"]:
@@ -197,9 +199,9 @@ class InputEmbedder(nn.Module):
                 "msa": fn_msa
             }
             
-            tf_esm = self.residue_encoding(tf)
+            representation = self.residue_encoding(tf)
             # tf_esm, attn = self.residue_encoding(tf, chain_index_copy)
-            
+            tf_esm = representation["tf"]
             if self.residue_emb_cfg["usage"] != "msa":                      
                 residue_emb_z_i = self.linear_emb_z_i(tf_esm) # [*, N_res, c_z]
                 residue_emb_z_j = self.linear_emb_z_j(tf_esm) # [*, N_res, c_z]
@@ -229,9 +231,14 @@ class InputEmbedder(nn.Module):
         
         # residue_attn enabled
         if self.residue_attn_cfg["enabled"]:
+            attn = representation["attention"].unsqueeze(-1)
+            contact = representation["contact"].unsqueeze(-1)
+            logits = representation["logits"].unsqueeze(-1).unsqueeze(-1)
             assert attn is not None
-            attn_feat = self.linear_attn(attn)
-            pair_emb = pair_emb + attn_feat
+            # attn_feat = self.linear_attn(attn)
+            pair_emb = pair_emb + attn * 0 + contact * 0 + logits * 0.0
+            # attn_feat = self.linear_attn(attn)
+            # pair_emb = pair_emb + attn_feat
 
         return tf_m, pair_emb
 

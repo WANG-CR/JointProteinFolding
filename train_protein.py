@@ -204,13 +204,6 @@ class OpenFoldWrapper(pl.LightningModule):
     def on_save_checkpoint(self, checkpoint):
         checkpoint["ema"] = self.ema.state_dict()
 
-    def backward(self, loss, optimizer, optimizer_idx):
-        loss.backward()
-        for n, p in self.model.named_parameters():
-            if p.grad is None:
-                logging.warning(f'f: {n} has no grad')
-            else:
-                logging.warning(f'f: {n} has grad')
 
 
 def main(args):
@@ -299,6 +292,23 @@ def main(args):
     else:
         strategy = None
    
+    # trainer = pl.Trainer.from_argparse_args(
+    #     args,
+    #     default_root_dir=args.output_dir,
+    #     strategy=strategy,
+    #     callbacks=callbacks,
+    #     logger=loggers,
+    # )
+
+    # trainer = pl.Trainer(
+    #     precision=16,
+    #     gpus=1,
+    #     default_root_dir=args.output_dir,
+    #     strategy=strategy,
+    #     callbacks=callbacks,
+    #     logger=loggers,
+    # )
+
     trainer = pl.Trainer.from_argparse_args(
         args,
         default_root_dir=args.output_dir,
@@ -317,6 +327,10 @@ def main(args):
         datamodule=data_module,
         ckpt_path=ckpt_path,
     )
+
+
+    # abandon pl, using normal pytorch training
+
 
 
 def bool_type(bool_str: str):

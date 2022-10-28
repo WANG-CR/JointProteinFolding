@@ -19,7 +19,7 @@ from openfold.np import residue_constants
 from openfold.utils.argparse import remove_arguments
 from openfold.utils.callbacks import EarlyStoppingVerbose
 from openfold.utils.exponential_moving_average import ExponentialMovingAverage
-from openfold.utils.loss import AlphaFoldLoss, lddt_ca, compute_drmsd, InverseLoss
+from openfold.utils.loss import AlphaFoldLoss, distogram_loss, lddt_ca, compute_drmsd, InverseLoss
 from openfold.utils.lr_schedulers import AlphaFoldLRScheduler
 from openfold.utils.seed import seed_everything
 from openfold.utils.superimposition import superimpose
@@ -36,18 +36,35 @@ class OpenFoldWrapper(pl.LightningModule):
         self.f_model = AlphaFold(config)
         self.g_model = AlphaFoldInverse(config)
         self.f_loss = AlphaFoldLoss(config.loss)
-        # self.g_loss = InverseLoss(config.loss)
+        self.g_loss = InverseLoss(config.loss)
         self.f_ema = ExponentialMovingAverage(
             model=self.f_model, decay=config.ema.decay
         )
         self.g_ema = ExponentialMovingAverage(
             model=self.g_model, decay=config.ema.decay
         )
-        self.f_model.input_embedder.esm_model.requires_grad_(False)
+
         self.cached_weights = None
 
     def forward(self, batch):
         return self.f_model(batch), self.g_model(batch)
+
+    def forward_joint(self, batch):
+        f_outputs = self.f_model(batch)
+        # we should consider the mask
+        coords = f_outputs["final_atom_positions"] # [*, N, 37, 3]
+        n_pos = residue_constants.atom_order["N"]
+        gt_coords_n = coords[..., n_pos, :].unsqueeze(-2) # [*, N, 1, 3]
+        ca_pos = residue_constants.atom_order["CA"]
+        gt_coords_ca = coords[..., ca_pos, :].unsqueeze(-2) # [*, N, 3]
+        c_pos = residue_constants.atom_order["C"]
+        gt_coords_c = coords[..., c_pos, :].unsqueeze(-2) # [*, N, 3]
+        o_pos = residue_constants.atom_order["O"]
+        gt_coords_o = coords[..., o_pos, :].unsqueeze(-2) # [*, N, 3]
+        coords_feats = torch.cat((gt_coords_n, gt_coords_ca, gt_coords_c, gt_coords_o), dim=-2)
+
+        h_outputs = self.g_model.forward_h(batch, coords_feats)
+        return f_outputs, h_outputs
 
     def _log(self, loss_breakdown, batch, outputs, train=True):
         phase = "train" if train else "val"
@@ -80,49 +97,78 @@ class OpenFoldWrapper(pl.LightningModule):
             )
 
     def training_step(self, batch, batch_idx):
-        if(self.f_ema.device != batch["aatype"].device):
-            self.f_ema.to(batch["aatype"].device)
-            self.g_ema.to(batch["aatype"].device)
+        if(self.f_ema.device != batch["a"]["aatype"].device):
+            self.f_ema.to(batch["a"]["aatype"].device)
+            self.g_ema.to(batch["a"]["aatype"].device)
 
-        # torch.cuda.empty_cache()
+        if batch_idx % 2 == 0:
+            # Run the model
+            f_outputs, g_outputs = self(batch["a"])
+
+            # Remove the recycling dimension
+            batch_a = tensor_tree_map(lambda t: t[..., -1], batch["a"])
+
+            # Compute f loss
+            f_loss, f_loss_breakdown = self.f_loss(
+                f_outputs, batch_a, _return_breakdown=True
+            )
+            # Log it
+            self._log(f_loss_breakdown, batch_a, f_outputs)
+
+            # Compute g loss
+            logits = g_outputs["sm"]["seqs_logits"][-1]
+            aatype = batch_a["aatype"]
+            
+            masked_pred = logits.masked_select(batch_a["seq_mask"].unsqueeze(-1).to(torch.bool)).view(-1, residue_constants.restype_num + 1) # Nl x 21
+            masked_target = aatype.masked_select(batch_a["seq_mask"].to(torch.bool)).view(-1)    # Nl
+
+            ce = F.cross_entropy(masked_pred, masked_target.long())
+            ppl = ce.exp()
+            dummy_loss = sum([v.float().sum() for v in g_outputs["sm"].values()])    # calculate other loss (pl distributed training)
+            # Log it
+            self.log('train/g_loss', ce, on_step=True, on_epoch=False, prog_bar=False, logger=True)
+            self.log('train/g_PPL', ppl, on_step=True, on_epoch=False, prog_bar=True, logger=True)
+            self.log('train/g_loss_epoch', ce, on_step=False, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
+            self.log('train/g_PPL_epoch', ppl, on_step=False, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
+
+            g_loss = ce + 0. * dummy_loss
+            loss = f_loss + g_loss
+            return loss
+
+
+        elif batch_idx % 2 == 1:
+            f_outputs, h_outputs = self.forward_joint(batch["b"])
+            plddt = f_outputs["plddt"][-1].mean()
+            plddt_loss = -plddt/100 + 1.0
+            # use fake loss, to avoid non-used parameters
+            # these parameters will cause backpropagation error during DDP
+            logits=f_outputs["sm"]["seqs_logits"]
+            # [8, 1, 256, 21]
+            distogram = f_outputs["distogram_logits"]
+            # [1, 256, 256, 64]
+            logits_loss = logits.sum()
+            distogram_loss = distogram.sum()
+
+            batch_b = tensor_tree_map(lambda t: t[..., -1], batch["b"])
+            # Compute h loss
+            logits_h = h_outputs["sm"]["seqs_logits"][-1]
+            aatype = batch_b["aatype"]
+            masked_target = aatype.masked_select(batch_b["seq_mask"].to(torch.bool)).view(-1)    # Nl
+
+            masked_pred_h = logits_h.masked_select(batch_b["seq_mask"].unsqueeze(-1).to(torch.bool)).view(-1, residue_constants.restype_num + 1) # Nl x 21
+
+            ce_h = F.cross_entropy(masked_pred_h, masked_target.long())
+            ppl_h = ce_h.exp()
+            dummy_loss_h = sum([v.float().sum() for v in h_outputs["sm"].values()])    # calculate other loss (pl distributed training)
+            # Log it
+            self.log('train/h_loss', ce_h, on_step=True, on_epoch=False, prog_bar=False, logger=True)
+            self.log('train/h_PPL', ppl_h, on_step=True, on_epoch=False, prog_bar=True, logger=True)
+            self.log('train/h_loss_epoch', ce_h, on_step=False, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
+            self.log('train/h_PPL_epoch', ppl_h, on_step=False, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
+            h_loss = ce_h + 0. * dummy_loss_h + plddt_loss + 0. * logits_loss + 0. * distogram_loss
+            return h_loss
+
         
-        # Run the model
-        f_outputs, g_outputs = self(batch)
-        
-        # Remove the recycling dimension
-        batch = tensor_tree_map(lambda t: t[..., -1], batch)
-
-
-        # Compute f loss
-        f_loss, f_loss_breakdown = self.f_loss(
-            f_outputs, batch, _return_breakdown=True
-        )
-        # Log it
-        self._log(f_loss_breakdown, batch, f_outputs)
-
-
-        # Compute g loss
-        logits = g_outputs["sm"]["seqs_logits"][-1]
-        aatype = batch["aatype"]
-        masked_pred = logits.masked_select(batch["seq_mask"].unsqueeze(-1).to(torch.bool)).view(-1, residue_constants.restype_num + 1) # Nl x 21
-        masked_target = aatype.masked_select(batch["seq_mask"].to(torch.bool)).view(-1)    # Nl
-
-        ce = F.cross_entropy(masked_pred, masked_target.long())
-        ppl = ce.exp()
-        dummy_loss = sum([v.float().sum() for v in g_outputs["sm"].values()])    # calculate other loss (pl distributed training)
-        # Log it
-        self.log('train/g_loss', ce, on_step=True, on_epoch=False, prog_bar=False, logger=True)
-        self.log('train/g_PPL', ppl, on_step=True, on_epoch=False, prog_bar=True, logger=True)
-        
-        self.log('train/g_loss_epoch', ce, on_step=False, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
-        self.log('train/g_PPL_epoch', ppl, on_step=False, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
-
-        g_loss = ce + 0. * dummy_loss
-        
-        # alpha = 0.5
-        # loss = alpha * f_loss + (1-alpha) * g_loss
-        loss = f_loss + g_loss
-        return loss
 
     def on_before_zero_grad(self, *args, **kwargs):
         self.f_ema.update(self.f_model)
@@ -155,7 +201,6 @@ class OpenFoldWrapper(pl.LightningModule):
         # compute g loss
         logits = g_outputs["sm"]["seqs_logits"][-1]
         aatype = batch["aatype"]
-
         # only last step computed as ce
         masked_pred = logits.masked_select(batch["seq_mask"].unsqueeze(-1).to(torch.bool)).view(-1, residue_constants.restype_num+1) # Nl x 21
         masked_target = aatype.masked_select(batch["seq_mask"].to(torch.bool)).view(-1)    # Nl
@@ -170,6 +215,25 @@ class OpenFoldWrapper(pl.LightningModule):
         self.log('val/g_loss', ce, on_step=False, on_epoch=True, prog_bar=False, logger=False, sync_dist=True)
         self.log('val/g_PPL', ppl, on_step=False, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)    # show
         self.log('val/g_AAR', aars, on_step=False, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)  
+
+
+
+        # # Compute h loss
+        # logits_h = h_outputs["sm"]["seqs_logits"][-1]
+
+        # masked_pred_h = logits_h.masked_select(batch["seq_mask"].unsqueeze(-1).to(torch.bool)).view(-1, residue_constants.restype_num + 1) # Nl x 21
+
+        # ce_h = F.cross_entropy(masked_pred_h, masked_target)
+        # ppl_h = ce_h.exp()
+        # logits_h[..., -1] = -9999 # zero out UNK.
+        # sampled_seqs_h = logits_h.argmax(dim=-1)    # greedy sampling
+        # masked_sampled_seqs_h = sampled_seqs_h.masked_select(batch["seq_mask"].to(torch.bool)).view(-1) # N x Nl
+        # aars_h = masked_sampled_seqs_h.eq(masked_target).float().mean()
+
+        # # Log it
+        # self.log('val/h_loss', ce_h, on_step=False, on_epoch=True, prog_bar=False, logger=False, sync_dist=True)
+        # self.log('val/h_PPL', ppl_h, on_step=False, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)    # show
+        # self.log('val/h_AAR', aars_h, on_step=False, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)  
 
         # loss = ce + f_loss
         # self.log(
@@ -272,16 +336,6 @@ class OpenFoldWrapper(pl.LightningModule):
         checkpoint["f_ema"] = self.f_ema.state_dict()
         checkpoint["g_ema"] = self.g_ema.state_dict()
 
-    def backward(self, loss, optimizer, optimizer_idx):
-        loss.backward()
-        for n, p in self.f_model.named_parameters():
-            if p.grad is None:
-                print(f'f: {n} has no grad')
-            else:
-                print(f'f: {n} has grad')
-        for n, p in self.g_model.named_parameters():
-            if p.grad is None:
-                print(f'g: {n} has no grad')
 
 def main(args):
     if(args.seed is not None):
@@ -301,28 +355,30 @@ def main(args):
         model_module.load_state_dict(sd)
         logging.info("Successfully loaded model weights...")
 
-    data_module = OpenFoldDataModule(
+    parallel_data_module = OpenFoldDataModule(
         config=config.data, 
         batch_seed=args.seed,
         **vars(args)
     )
 
-    data_module.prepare_data()
-    data_module.setup()
+    parallel_data_module.prepare_data()
+    parallel_data_module.setup()
+
+    # process fasta file
+    sequence_data_module = OpenFoldDataModule(
+        config=config.data, 
+        batch_seed=args.seed,
+        train_data_dir=args.fasta_dir,
+        train_epoch_len=args.train_epoch_len,
+        is_antibody=args.is_antibody,
+    )
+    sequence_data_module.prepare_data()
+    sequence_data_module.setup()
+
     callbacks = []
     if(args.checkpoint_every_epoch):
-        if args.deepspeed_config_path is not None or not args.wandb:
-            dirpath = None
-        else:
-            dirpath = os.path.join(
-                args.output_dir,
-                args.wandb_project,
-                args.wandb_version,
-                "checkpoints",
-            )
         mc = ModelCheckpoint(
             filename="epoch{epoch:02d}-step{step}-val_loss={val/loss:.3f}",
-            dirpath=dirpath,
             auto_insert_metric_name=False,
             monitor="val/loss",
             mode="min",
@@ -392,9 +448,12 @@ def main(args):
     else:
         ckpt_path = args.resume_from_ckpt
 
+    # multi data module training
+    train_dataloader={"a": parallel_data_module.train_dataloader(), "b": sequence_data_module.train_dataloader()}
     trainer.fit(
         model_module, 
-        datamodule=data_module,
+        train_dataloaders=train_dataloader,
+        val_dataloaders=parallel_data_module.val_dataloader(),
         ckpt_path=ckpt_path,
     )
 
@@ -413,8 +472,12 @@ if __name__ == "__main__":
     os.environ["CUDA_LAUNCH_BLOCKING"]="1"
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--train_data_dir", type=str, default=None,
-        help="Directory containing training mmCIF files"
+        "train_data_dir", type=str, default=None,
+        help="Directory containing training pdb files"
+    )
+    parser.add_argument(
+        "--fasta_dir", type=str, default='None',
+        help="Directory containing training fasta files"
     )
     parser.add_argument(
         "--output_dir", type=str, default='invfold_outputs',

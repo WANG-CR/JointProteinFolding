@@ -36,14 +36,14 @@ class OpenFoldWrapper(pl.LightningModule):
         self.f_model = AlphaFold(config)
         self.g_model = AlphaFoldInverse(config)
         self.f_loss = AlphaFoldLoss(config.loss)
-        self.g_loss = InverseLoss(config.loss)
+        # self.g_loss = InverseLoss(config.loss)
         self.f_ema = ExponentialMovingAverage(
             model=self.f_model, decay=config.ema.decay
         )
         self.g_ema = ExponentialMovingAverage(
             model=self.g_model, decay=config.ema.decay
         )
-
+        self.f_model.input_embedder.esm_model.requires_grad_(False)
         self.cached_weights = None
 
     def forward(self, batch):
@@ -84,29 +84,13 @@ class OpenFoldWrapper(pl.LightningModule):
             self.f_ema.to(batch["aatype"].device)
             self.g_ema.to(batch["aatype"].device)
 
+        # torch.cuda.empty_cache()
+        
         # Run the model
         f_outputs, g_outputs = self(batch)
-        # print(f_outputs)
-
-        coords = f_outputs["final_atom_positions"] # [*, N, 37, 3]
-        n_pos = residue_constants.atom_order["N"]
-        gt_coords_n = coords[..., n_pos, :].unsqueeze(-2) # [*, N, 1, 3]
-        ca_pos = residue_constants.atom_order["CA"]
-        gt_coords_ca = coords[..., ca_pos, :].unsqueeze(-2) # [*, N, 3]
-        c_pos = residue_constants.atom_order["C"]
-        gt_coords_c = coords[..., c_pos, :].unsqueeze(-2) # [*, N, 3]
-        o_pos = residue_constants.atom_order["O"]
-        gt_coords_o = coords[..., o_pos, :].unsqueeze(-2) # [*, N, 3]
-        coords_feats = torch.cat((gt_coords_n, gt_coords_ca, gt_coords_c, gt_coords_o), dim=-2)
-
-        h_outputs = self.g_model.forward_h(batch, coords_feats)
-        # write forward_h and iteraiton_h code tomorrow
-
-        # fix OOM bug in joint training
-
+        
         # Remove the recycling dimension
         batch = tensor_tree_map(lambda t: t[..., -1], batch)
-
 
         # Compute f loss
         f_loss, f_loss_breakdown = self.f_loss(
@@ -119,7 +103,6 @@ class OpenFoldWrapper(pl.LightningModule):
         # Compute g loss
         logits = g_outputs["sm"]["seqs_logits"][-1]
         aatype = batch["aatype"]
-        
         masked_pred = logits.masked_select(batch["seq_mask"].unsqueeze(-1).to(torch.bool)).view(-1, residue_constants.restype_num + 1) # Nl x 21
         masked_target = aatype.masked_select(batch["seq_mask"].to(torch.bool)).view(-1)    # Nl
 
@@ -129,30 +112,15 @@ class OpenFoldWrapper(pl.LightningModule):
         # Log it
         self.log('train/g_loss', ce, on_step=True, on_epoch=False, prog_bar=False, logger=True)
         self.log('train/g_PPL', ppl, on_step=True, on_epoch=False, prog_bar=True, logger=True)
+        
         self.log('train/g_loss_epoch', ce, on_step=False, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
         self.log('train/g_PPL_epoch', ppl, on_step=False, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
 
         g_loss = ce + 0. * dummy_loss
         
-
-        # Compute h loss
-        logits_h = h_outputs["sm"]["seqs_logits"][-1]
-
-        masked_pred_h = logits_h.masked_select(batch["seq_mask"].unsqueeze(-1).to(torch.bool)).view(-1, residue_constants.restype_num + 1) # Nl x 21
-
-        ce_h = F.cross_entropy(masked_pred_h, masked_target.long())
-        ppl_h = ce_h.exp()
-        dummy_loss_h = sum([v.float().sum() for v in h_outputs["sm"].values()])    # calculate other loss (pl distributed training)
-        # Log it
-        self.log('train/h_loss', ce_h, on_step=True, on_epoch=False, prog_bar=False, logger=True)
-        self.log('train/h_PPL', ppl_h, on_step=True, on_epoch=False, prog_bar=True, logger=True)
-        self.log('train/h_loss_epoch', ce_h, on_step=False, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
-        self.log('train/h_PPL_epoch', ppl_h, on_step=False, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
-        h_loss = ce_h + 0. * dummy_loss_h
-
         # alpha = 0.5
         # loss = alpha * f_loss + (1-alpha) * g_loss
-        loss = f_loss + g_loss + h_loss
+        loss = f_loss + g_loss
         return loss
 
     def on_before_zero_grad(self, *args, **kwargs):
@@ -173,20 +141,6 @@ class OpenFoldWrapper(pl.LightningModule):
 
         # Run the model
         f_outputs, g_outputs = self(batch)
-
-        coords = f_outputs["final_atom_positions"] # [*, N, 37, 3]
-        n_pos = residue_constants.atom_order["N"]
-        gt_coords_n = coords[..., n_pos, :].unsqueeze(-2) # [*, N, 1, 3]
-        ca_pos = residue_constants.atom_order["CA"]
-        gt_coords_ca = coords[..., ca_pos, :].unsqueeze(-2) # [*, N, 3]
-        c_pos = residue_constants.atom_order["C"]
-        gt_coords_c = coords[..., c_pos, :].unsqueeze(-2) # [*, N, 3]
-        o_pos = residue_constants.atom_order["O"]
-        gt_coords_o = coords[..., o_pos, :].unsqueeze(-2) # [*, N, 3]
-        coords_feats = torch.cat((gt_coords_n, gt_coords_ca, gt_coords_c, gt_coords_o), dim=-2)
-
-        h_outputs = self.g_model.forward_h(batch, coords_feats)
-
         batch = tensor_tree_map(lambda t: t[..., -1], batch)
 
         # Compute loss and other metrics
@@ -215,26 +169,6 @@ class OpenFoldWrapper(pl.LightningModule):
         self.log('val/g_loss', ce, on_step=False, on_epoch=True, prog_bar=False, logger=False, sync_dist=True)
         self.log('val/g_PPL', ppl, on_step=False, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)    # show
         self.log('val/g_AAR', aars, on_step=False, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)  
-
-
-
-        # Compute h loss
-        logits_h = h_outputs["sm"]["seqs_logits"][-1]
-
-        masked_pred_h = logits_h.masked_select(batch["seq_mask"].unsqueeze(-1).to(torch.bool)).view(-1, residue_constants.restype_num + 1) # Nl x 21
-
-        ce_h = F.cross_entropy(masked_pred_h, masked_target)
-        ppl_h = ce_h.exp()
-        logits_h[..., -1] = -9999 # zero out UNK.
-        sampled_seqs_h = logits_h.argmax(dim=-1)    # greedy sampling
-        masked_sampled_seqs_h = sampled_seqs_h.masked_select(batch["seq_mask"].to(torch.bool)).view(-1) # N x Nl
-        aars_h = masked_sampled_seqs_h.eq(masked_target).float().mean()
-
-        # Log it
-        self.log('val/h_loss', ce_h, on_step=False, on_epoch=True, prog_bar=False, logger=False, sync_dist=True)
-        self.log('val/h_PPL', ppl_h, on_step=False, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)    # show
-        self.log('val/h_AAR', aars_h, on_step=False, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)  
-
 
         # loss = ce + f_loss
         # self.log(
@@ -337,7 +271,6 @@ class OpenFoldWrapper(pl.LightningModule):
         checkpoint["f_ema"] = self.f_ema.state_dict()
         checkpoint["g_ema"] = self.g_ema.state_dict()
 
-
 def main(args):
     if(args.seed is not None):
         seed_everything(args.seed) 
@@ -366,8 +299,18 @@ def main(args):
     data_module.setup()
     callbacks = []
     if(args.checkpoint_every_epoch):
+        if args.deepspeed_config_path is not None or not args.wandb:
+            dirpath = None
+        else:
+            dirpath = os.path.join(
+                args.output_dir,
+                args.wandb_project,
+                args.wandb_version,
+                "checkpoints",
+            )
         mc = ModelCheckpoint(
             filename="epoch{epoch:02d}-step{step}-val_loss={val/loss:.3f}",
+            dirpath=dirpath,
             auto_insert_metric_name=False,
             monitor="val/loss",
             mode="min",
@@ -458,11 +401,11 @@ if __name__ == "__main__":
     os.environ["CUDA_LAUNCH_BLOCKING"]="1"
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--train_data_dir", type=str, default=None,
+        "train_data_dir", type=str, default=None,
         help="Directory containing training mmCIF files"
     )
     parser.add_argument(
-        "--output_dir", type=str, default='invfold_outputs',
+        "output_dir", type=str, default='invfold_outputs',
         help=(
             "Directory in which to output checkpoints, logs, etc. Ignored "
             "if not on rank 0"

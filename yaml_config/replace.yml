@@ -6,6 +6,9 @@ model:
   residue_emb:
     enabled: true
     usage: replace
+  residue_attn:
+    enabled: true
+    
 data:
   data_module:
     data_loaders:

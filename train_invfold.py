@@ -75,8 +75,6 @@ class OpenFoldWrapper(pl.LightningModule):
         logits = outputs["sm"]["seqs_logits"][-1]
         aatype = batch["aatype"][..., -1]
         
-
-
         ## using self.loss
         # # logging.info(f"logits is {logits}")
         # # logging.info(f"aatype is {aatype}")
@@ -392,11 +390,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
-        "--train_data_dir", type=str, default=None,
+        "train_data_dir", type=str, default=None,
         help="Directory containing training mmCIF files"
     )
     parser.add_argument(
-        "--output_dir", type=str, default='invfold_outputs',
+        "output_dir", type=str, default='invfold_outputs',
         help=(
             "Directory in which to output checkpoints, logs, etc. Ignored "
             "if not on rank 0"

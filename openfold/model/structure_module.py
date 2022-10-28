@@ -696,6 +696,7 @@ class StructureModule(nn.Module):
         if mask is None:
             # [*, N]
             mask = s.new_ones(s.shape[:-1])
+        # print(f"checking s, 6")
         check_inf_nan(s)
         # [*, N, C_s]
         s = self.layer_norm_s(s)
