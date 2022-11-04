@@ -206,9 +206,9 @@ class AlphaFoldInverse(nn.Module):
             feats["coords"][..., 0],    # B, N, 4, 3
             feats["seq_mask"][..., 0],  # B, N
         )
-        check_inf_nan(pair_rbf)
+        if check_inf_nan(pair_rbf):
+            pair_rbf = _nan_to_num(pair_rbf)
 
-        # pair_rbf = _nan_to_num(pair_rbf)
         # Initialize the seq and pair representations
         # m: [*, N, C_m]
         # z: [*, N, N, C_z]
@@ -219,10 +219,9 @@ class AlphaFoldInverse(nn.Module):
             coords=feats["coords"][..., 0],
             mask=seq_mask
         )
-        # m, z = _nan_to_num(m), _nan_to_num(z)
-
-        check_inf_nan([m,z])
-
+        
+        if check_inf_nan([m,z]):
+            m, z = _nan_to_num(m), _nan_to_num(z)
         ######################################
         # Thats' all for predicting aatype
         # No recycle, so comment the rest out
@@ -240,9 +239,10 @@ class AlphaFoldInverse(nn.Module):
             chunk_size=self.globals.chunk_size,
             _mask_trans=self.config._mask_trans,
         )
-        # m, z, s = _nan_to_num(m), _nan_to_num(z), _nan_to_num(s)
 
-        check_inf_nan([m, z, s])
+        if check_inf_nan([m, z, s]):
+            m, z, s = _nan_to_num(m), _nan_to_num(z), _nan_to_num(s)
+        
         # print('m,z, s', m.dtype, z.dtype, s.dtype)
 
         # outputs["pair"] = z

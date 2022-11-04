@@ -102,7 +102,7 @@ class OpenFoldWrapper(pl.LightningModule):
             self.g_ema.to(batch["a"]["aatype"].device)
 
         if batch_idx % 2 == 0:
-            # Run the model
+        # Run the model
             f_outputs, g_outputs = self(batch["a"])
 
             # Remove the recycling dimension
@@ -311,6 +311,7 @@ class OpenFoldWrapper(pl.LightningModule):
             [{"params":self.f_model.parameters()},{"params":self.g_model.parameters()}],
             lr=optim_config.lr,
             eps=optim_config.eps,
+            weight_decay=1e-6,
         )
         lr_scheduler = AlphaFoldLRScheduler(
             optimizer,
@@ -349,11 +350,24 @@ def main(args):
         low_prec=(args.precision == 16),
     )
     model_module = OpenFoldWrapper(config)
-    if(args.resume_from_ckpt and args.resume_model_weights_only):
-        sd = get_fp32_state_dict_from_zero_checkpoint(args.resume_from_ckpt)
-        sd = {k[len("module."):]:v for k,v in sd.items()}
-        model_module.load_state_dict(sd)
-        logging.info("Successfully loaded model weights...")
+    # if(args.resume_from_ckpt and args.resume_model_weights_only):
+    #     sd = get_fp32_state_dict_from_zero_checkpoint(args.resume_from_ckpt)
+    #     sd = {k[len("module."):]:v for k,v in sd.items()}
+    #     model_module.load_state_dict(sd)
+    #     logging.info("Successfully loaded model weights...")
+
+    logging.info(f"args.resume_model_weights_only is {args.resume_model_weights_only}")
+    logging.info(f"args.resume_from_ckpt_f is {args.resume_from_ckpt_f}")
+    if(args.resume_model_weights_only):
+        if args.resume_from_ckpt_f:
+            # sd = get_fp32_state_dict_from_zero_checkpoint(args.resume_from_ckpt_f)
+            sd = torch.load(args.resume_from_ckpt_f)
+            dict1 = {k[len("module."):]:v for k,v in sd.items()}
+            for key, values in dict1.items():
+                print(f"key is {key}")
+            sd = {k[len("module."):]:v for k,v in sd.items()}
+            model_module.load_state_dict(sd)
+            logging.info("Successfully loaded model_f weights...")
 
     parallel_data_module = OpenFoldDataModule(
         config=config.data, 
@@ -519,6 +533,10 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--resume_from_ckpt", type=str, default=None,
+        help="Path to a model checkpoint from which to restore training state"
+    )
+    parser.add_argument(
+        "--resume_from_ckpt_f", type=str, default=None,
         help="Path to a model checkpoint from which to restore training state"
     )
     parser.add_argument(

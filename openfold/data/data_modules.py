@@ -67,7 +67,8 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
 
         if(self.mode == 'train' or self.mode == 'eval'):
             # chain_id = name[4] is specific for CATH file
-            spl = name.rsplit('_',1)
+            # spl = name.rsplit('_',1)
+            spl = name.rsplit(', ',1)
             if(len(spl)==2):
                 file_id, chain_id = spl
             else:

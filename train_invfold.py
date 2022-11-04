@@ -234,6 +234,7 @@ class OpenFoldWrapper(pl.LightningModule):
             lr=optim_config.lr,
             # weight_decay=optim_config.weight_decay,
             eps=optim_config.eps,
+            weight_decay=1e-6,
         )
         lr_scheduler = AlphaFoldLRScheduler(
             optimizer,

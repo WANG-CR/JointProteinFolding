@@ -177,10 +177,18 @@ class OpenFoldWrapper(pl.LightningModule):
         optim_config = self.config.optimizer
         scheduler_config = self.config.scheduler
         
+#        optimizer = torch.optim.Adam(
+#            [{"params":[p for p in self.model.parameters() if p not in self.model.input_embedder.esm_model.parameters()], 'lr':optim_config.lr},
+#            {"params":[p for p in self.model.input_embedder.esm_model.parameters()], 'lr': 0.1 * optim_config.lr}],
+#            lr=optim_config.lr,
+#            eps=optim_config.eps,
+#        )
+
         optimizer = torch.optim.Adam(
             self.model.parameters(),
             lr=optim_config.lr,
             eps=optim_config.eps,
+            weight_decay=1e-5,
         )
         lr_scheduler = AlphaFoldLRScheduler(
             optimizer,

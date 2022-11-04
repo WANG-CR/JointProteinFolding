@@ -19,6 +19,13 @@ from openfold.utils.tensor_utils import dict_multimap, tensor_tree_map
 from openfold.utils.rigid_utils import Rigid
 from openfold.utils.loss import check_inf_nan
 
+def _nan_to_num(ts, val=0.0):
+    """
+    Replaces nans in tensor with a fixed value.    
+    """
+    val = torch.tensor(val, dtype=ts.dtype, device=ts.device)
+    return torch.where(~torch.isfinite(ts), val, ts)
+
 class AlphaFold(nn.Module):
     """
     Alphafold 2.
@@ -90,9 +97,10 @@ class AlphaFold(nn.Module):
             
         )
         # print(f"checking m, 1")
-        check_inf_nan(m)
+
         # print(f"checking z, 2")
-        check_inf_nan(z)
+        if check_inf_nan([m,z]):
+            m, z = _nan_to_num(m), _nan_to_num(z)
         # Initialize the recycling embeddings, if needs be
         if None in [m_1_prev, z_prev]:
             # [*, N, C_m]
@@ -167,12 +175,14 @@ class AlphaFold(nn.Module):
             _mask_trans=self.config._mask_trans,
         )
 
+
+        # print(f"checking s, 3")
+        # print(f"checking z, 4")
+        if check_inf_nan([s,z]):
+            s, z = _nan_to_num(s), _nan_to_num(z)
         outputs["pair"] = z
         outputs["single"] = s
-        # print(f"checking s, 3")
-        check_inf_nan(s)
-        # print(f"checking z, 4")
-        check_inf_nan(z)
+
 
         # Predict 3D structure
         # gt_angles = feats["torsion_angles_sin_cos"]

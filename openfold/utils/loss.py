@@ -45,6 +45,13 @@ def sigmoid_cross_entropy(logits, labels):
     loss = -labels * log_p - (1 - labels) * log_not_p
     return loss
 
+def _nan_to_num(ts, val=0.0):
+    """
+    Replaces nans in tensor with a fixed value.    
+    """
+    val = torch.tensor(val, dtype=ts.dtype, device=ts.device)
+    return torch.where(~torch.isfinite(ts), val, ts)
+
 def check_inf_nan(
     tensors: Union[torch.Tensor, Sequence[torch.Tensor]]
 ):
@@ -58,13 +65,14 @@ def check_inf_nan(
                 f"input type {type(tensors)} is not supported."
             )
     for idx, tensor in enumerate(tensors):
-        if not not torch.isnan(tensor).any():
+        if torch.isnan(tensor).any():
             print(f"nan point value: {tensor}")
             print(f"nan point: {tensor[torch.isnan(tensor)==1]}")
             print(f"get 1 nan point, idx: {idx}")
+            return True
         assert not torch.isnan(tensor).any(), f"idx: {idx}"
         assert not torch.isinf(tensor).any(), f"idx: {idx}"
-
+    return False
 def compute_fape(
     pred_frames: Rigid,
     target_frames: Rigid,

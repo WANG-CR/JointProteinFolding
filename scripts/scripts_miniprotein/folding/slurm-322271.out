@@ -1,0 +1,41 @@
+
+scontrol show jobid 322271
+JobId=322271 JobName=interactive
+   UserId=chuanrui(3121680) GroupId=bengioy(6000167) MCS_label=N/A
+   Priority=10090829 Nice=0 Account=def-bengioy QOS=normal
+   JobState=COMPLETING Reason=None Dependency=(null)
+   Requeue=0 Restarts=0 BatchFlag=0 Reboot=0 ExitCode=0:0
+   RunTime=00:16:56 TimeLimit=00:30:00 TimeMin=N/A
+   SubmitTime=2022-11-01T10:46:43 EligibleTime=2022-11-01T10:46:43
+   AccrueTime=Unknown
+   StartTime=2022-11-01T10:46:43 EndTime=2022-11-01T11:03:39 Deadline=N/A
+   SuspendTime=None SecsPreSuspend=0 LastSchedEval=2022-11-01T10:46:43 Scheduler=Main
+   Partition=debug_full_node AllocNode:Sid=mist-login01:1344159
+   ReqNodeList=(null) ExcNodeList=(null)
+   NodeList=mist001
+   BatchHost=mist001
+   NumNodes=1 NumCPUs=128 NumTasks=4 CPUs/Task=1 ReqB:S:C:T=0:0:*:*
+   TRES=cpu=128,mem=235200M,node=1,billing=4,gres/gpu=4
+   Socks/Node=* NtasksPerN:B:S:C=4:0:*:* CoreSpec=*
+   MinCPUsNode=4 MinMemoryNode=235200M MinTmpDiskNode=0
+   Features=(null) DelayBoot=00:00:00
+   OverSubscribe=NO Contiguous=0 Licenses=(null) Network=(null)
+   Command=(null)
+   WorkDir=/gpfs/fs0/scratch/b/bengioy/chuanrui/backup/alphafold/scripts_miniprotein/folding
+   Comment=/opt/slurm/bin/salloc -p debug_full_node --gpus-per-node=4 --nodes=1 -t 30:00 --ntasks-per-node=4 
+   Power=
+   CpusPerTres=gpu:32
+   TresPerNode=gres:gpu:4
+   
+
+sacct -j 322271
+JobID           JobName    Account    Elapsed  MaxVMSize     MaxRSS  SystemCPU    UserCPU ExitCode 
+------------ ---------- ---------- ---------- ---------- ---------- ---------- ---------- -------- 
+322271       interacti+ def-bengi+   00:16:56                        00:15.055  01:06.230      0:0 
+322271.inte+ interacti+ def-bengi+   00:17:58    681280K     25152K  00:00.584  00:02.640      0:9 
+322271.exte+     extern def-bengi+   00:16:56      3200K      1280K   00:00:00   00:00:00      0:0 
+322271.0         python def-bengi+   00:00:25  33708416K   7266112K  00:14.471  01:03.590     0:15 
+
+kernel messages produced during job executions:
+[Nov 1 11:04] CIFS PidTable: buckets 64
+[  +0.000521] CIFS BufTable: buckets 64
