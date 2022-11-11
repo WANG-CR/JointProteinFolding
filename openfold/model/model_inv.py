@@ -425,7 +425,7 @@ class AlphaFoldInverse(nn.Module):
         ## Calculate contact
         ## [*, N, N]
         contact = None
-        logging.info(f"coords_bb shape is {coords_bb.shape}")
+        # logging.info(f"coords_bb shape is {coords_bb.shape}")
         pair_rbf = compute_pair_rbf(
             coords_bb,    # B, N, 4, 3
             feats["seq_mask"][..., 0],  # B, N

@@ -44,6 +44,7 @@ class OpenFoldWrapper(pl.LightningModule):
             model=self.g_model, decay=config.ema.decay
         )
 
+        # self.plddt_regularized = self.config
         self.cached_weights = None
 
     def forward(self, batch):
@@ -97,78 +98,47 @@ class OpenFoldWrapper(pl.LightningModule):
             )
 
     def training_step(self, batch, batch_idx):
-        if(self.f_ema.device != batch["a"]["aatype"].device):
-            self.f_ema.to(batch["a"]["aatype"].device)
-            self.g_ema.to(batch["a"]["aatype"].device)
-
-        if batch_idx % 2 == 0:
-        # Run the model
-            f_outputs, g_outputs = self(batch["a"])
-
-            # Remove the recycling dimension
-            batch_a = tensor_tree_map(lambda t: t[..., -1], batch["a"])
-
-            # Compute f loss
-            f_loss, f_loss_breakdown = self.f_loss(
-                f_outputs, batch_a, _return_breakdown=True
-            )
-            # Log it
-            self._log(f_loss_breakdown, batch_a, f_outputs)
-
-            # Compute g loss
-            logits = g_outputs["sm"]["seqs_logits"][-1]
-            aatype = batch_a["aatype"]
-            
-            masked_pred = logits.masked_select(batch_a["seq_mask"].unsqueeze(-1).to(torch.bool)).view(-1, residue_constants.restype_num + 1) # Nl x 21
-            masked_target = aatype.masked_select(batch_a["seq_mask"].to(torch.bool)).view(-1)    # Nl
-
-            ce = F.cross_entropy(masked_pred, masked_target.long())
-            ppl = ce.exp()
-            dummy_loss = sum([v.float().sum() for v in g_outputs["sm"].values()])    # calculate other loss (pl distributed training)
-            # Log it
-            self.log('train/g_loss', ce, on_step=True, on_epoch=False, prog_bar=False, logger=True)
-            self.log('train/g_PPL', ppl, on_step=True, on_epoch=False, prog_bar=True, logger=True)
-            self.log('train/g_loss_epoch', ce, on_step=False, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
-            self.log('train/g_PPL_epoch', ppl, on_step=False, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
-
-            g_loss = ce + 0. * dummy_loss
-            loss = f_loss + g_loss
-            return loss
-
-
-        elif batch_idx % 2 == 1:
-            f_outputs, h_outputs = self.forward_joint(batch["b"])
-            plddt = f_outputs["plddt"][-1].mean()
-            plddt_loss = -plddt/100 + 1.0
-            # use fake loss, to avoid non-used parameters
-            # these parameters will cause backpropagation error during DDP
-            logits=f_outputs["sm"]["seqs_logits"]
-            # [8, 1, 256, 21]
-            distogram = f_outputs["distogram_logits"]
-            # [1, 256, 256, 64]
-            logits_loss = logits.sum()
-            distogram_loss = distogram.sum()
-
-            batch_b = tensor_tree_map(lambda t: t[..., -1], batch["b"])
-            # Compute h loss
-            logits_h = h_outputs["sm"]["seqs_logits"][-1]
-            aatype = batch_b["aatype"]
-            masked_target = aatype.masked_select(batch_b["seq_mask"].to(torch.bool)).view(-1)    # Nl
-
-            masked_pred_h = logits_h.masked_select(batch_b["seq_mask"].unsqueeze(-1).to(torch.bool)).view(-1, residue_constants.restype_num + 1) # Nl x 21
-
-            ce_h = F.cross_entropy(masked_pred_h, masked_target.long())
-            ppl_h = ce_h.exp()
-            dummy_loss_h = sum([v.float().sum() for v in h_outputs["sm"].values()])    # calculate other loss (pl distributed training)
-            # Log it
-            self.log('train/h_loss', ce_h, on_step=True, on_epoch=False, prog_bar=False, logger=True)
-            self.log('train/h_PPL', ppl_h, on_step=True, on_epoch=False, prog_bar=True, logger=True)
-            self.log('train/h_loss_epoch', ce_h, on_step=False, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
-            self.log('train/h_PPL_epoch', ppl_h, on_step=False, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
-            h_loss = ce_h + 0. * dummy_loss_h + 0. * plddt_loss + 0. * logits_loss + 0. * distogram_loss
-            return h_loss
+        if(self.f_ema.device != batch["b"]["aatype"].device):
+            self.f_ema.to(batch["b"]["aatype"].device)
+            self.g_ema.to(batch["b"]["aatype"].device)
 
         
+        f_outputs, h_outputs = self.forward_joint(batch["b"])
+        plddt = f_outputs["plddt"][-1].mean()
+        plddt_loss = -plddt/100 + 1.0
+        
+        log_plddt = plddt.detach()
+        self.log('train/regu_plddt_score', log_plddt, on_step=False, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
+        self.log('train/regu_plddt_loss_epoch', plddt_loss, on_step=False, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
+
+        # use fake loss, to avoid non-used parameters
+        # these parameters will cause backpropagation error during DDP
+        logits=f_outputs["sm"]["seqs_logits"]
+        # [8, 1, 256, 21]
+        distogram = f_outputs["distogram_logits"]
+        # [1, 256, 256, 64]
+        logits_loss = logits.sum()
+        distogram_loss = distogram.sum()
+
+        batch_b = tensor_tree_map(lambda t: t[..., -1], batch["b"])
+        # Compute h loss
+        logits_h = h_outputs["sm"]["seqs_logits"][-1]
+        aatype = batch_b["aatype"]
+        masked_target = aatype.masked_select(batch_b["seq_mask"].to(torch.bool)).view(-1)    # Nl
+
+        masked_pred_h = logits_h.masked_select(batch_b["seq_mask"].unsqueeze(-1).to(torch.bool)).view(-1, residue_constants.restype_num + 1) # Nl x 21
+
+        ce_h = F.cross_entropy(masked_pred_h, masked_target.long())
+        ppl_h = ce_h.exp()
+        dummy_loss_h = sum([v.float().sum() for v in h_outputs["sm"].values()])    # calculate other loss (pl distributed training)
+        # Log it
+        self.log('train/h_loss', ce_h, on_step=True, on_epoch=False, prog_bar=False, logger=True)
+        self.log('train/h_PPL', ppl_h, on_step=True, on_epoch=False, prog_bar=True, logger=True)
+        self.log('train/h_loss_epoch', ce_h, on_step=False, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
+        self.log('train/h_PPL_epoch', ppl_h, on_step=False, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
+        h_loss = ce_h + 0. * dummy_loss_h + 0. * plddt_loss + 0. * logits_loss + 0. * distogram_loss
+        return h_loss
+
 
     def on_before_zero_grad(self, *args, **kwargs):
         self.f_ema.update(self.f_model)
@@ -190,6 +160,9 @@ class OpenFoldWrapper(pl.LightningModule):
         f_outputs, g_outputs = self(batch)
         _, h_outputs = self.forward_joint(batch)
         batch = tensor_tree_map(lambda t: t[..., -1], batch)
+
+        # plddt = f_outputs["plddt"][-1].mean()
+        # self.log('val/regu_plddt_score', plddt, on_step=False, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
 
         # Compute loss and other metrics
         batch["use_clamped_fape"] = 0.
@@ -234,23 +207,6 @@ class OpenFoldWrapper(pl.LightningModule):
         self.log('val/h_loss', ce_h, on_step=False, on_epoch=True, prog_bar=False, logger=False, sync_dist=True)
         self.log('val/h_PPL', ppl_h, on_step=False, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)    # show
         self.log('val/h_AAR', aars_h, on_step=False, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)  
-
-        # # Compute h loss
-        # logits_h = h_outputs["sm"]["seqs_logits"][-1]
-
-        # masked_pred_h = logits_h.masked_select(batch["seq_mask"].unsqueeze(-1).to(torch.bool)).view(-1, residue_constants.restype_num + 1) # Nl x 21
-
-        # ce_h = F.cross_entropy(masked_pred_h, masked_target)
-        # ppl_h = ce_h.exp()
-        # logits_h[..., -1] = -9999 # zero out UNK.
-        # sampled_seqs_h = logits_h.argmax(dim=-1)    # greedy sampling
-        # masked_sampled_seqs_h = sampled_seqs_h.masked_select(batch["seq_mask"].to(torch.bool)).view(-1) # N x Nl
-        # aars_h = masked_sampled_seqs_h.eq(masked_target).float().mean()
-
-        # # Log it
-        # self.log('val/h_loss', ce_h, on_step=False, on_epoch=True, prog_bar=False, logger=False, sync_dist=True)
-        # self.log('val/h_PPL', ppl_h, on_step=False, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)    # show
-        # self.log('val/h_AAR', aars_h, on_step=False, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)  
 
         # loss = ce + f_loss
         # self.log(
@@ -375,7 +331,7 @@ def main(args):
 
     logging.info(f"args.resume_model_weights_only is {args.resume_model_weights_only}")
     logging.info(f"args.resume_from_ckpt_f is {args.resume_from_ckpt_f}")
-    logging.info(f"args.resume_from_ckpt_g is {args.resume_from_ckpt_f}")
+    logging.info(f"args.resume_from_ckpt_g is {args.resume_from_ckpt_g}")
     if(args.resume_model_weights_only):
         assert (args.resume_from_ckpt_f is not None) or (args.resume_from_ckpt_g is not None)
 
