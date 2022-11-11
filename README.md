@@ -6,11 +6,10 @@ We are developing an performant and easy-to-use codebase for protein folding and
 All Python dependencies are specified in `environment.yml`. Some download scripts require `aria2c`.
 
 For convenience, we provide a script that creates a `conda` virtual environment, installs all Python dependencies, and downloads useful resources (including DeepMind's pretrained parameters).
-We provide scripts for mac and mist cluster. Run:
+We provide scripts for mist cluster. Run:
 
 ```bash
-bash scripts_local/install_third_party_dependencies.sh
-bash scripts_cath/install_third_party_dependencies.sh
+bash scripts/install_third_party_dependencies.sh
 ```
 
 To activate the environment, run:
