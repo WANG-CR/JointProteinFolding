@@ -44,8 +44,10 @@ class ExponentialMovingAverage:
                 stored = state_dict[k]
                 if not isinstance(v, torch.Tensor):
                     self._update_state_dict_(v, stored)
-                else:
+                elif k not in ['input_embedder.af2_to_esm']:
+                    # else:
                     diff = stored - v
+                    # print(f"self decay type is {type((1-self.decay))}")
                     diff *= 1 - self.decay
                     stored -= diff
 

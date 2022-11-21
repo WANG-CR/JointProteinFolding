@@ -94,7 +94,6 @@ class AlphaFold(nn.Module):
             feats["target_feat"],
             feats["residue_index"],
             seqs_prev,
-            
         )
         # print(f"checking m, 1")
 
@@ -221,6 +220,143 @@ class AlphaFold(nn.Module):
 
         return outputs, m_1_prev, z_prev, x_prev, seqs_prev
 
+    def iter(
+        self, feats, m, z, m_1_prev, z_prev, x_prev, seqs_prev,
+        initial_rigids=None,
+        initial_seqs=None,
+        _recycle=True,
+    ):
+        # Primary output dictionary
+        outputs = {}
+
+        # This needs to be done manually for DeepSpeed's sake
+        dtype = next(self.parameters()).dtype
+        for k in feats:
+            if feats[k].dtype == torch.float32:
+                feats[k] = feats[k].to(dtype=dtype)
+
+        # Grab some data about the input
+        batch_dims = feats["target_feat"].shape[:-2]
+        n = feats["target_feat"].shape[-2]
+
+        # Prep some features
+        seq_mask = feats["seq_mask"]
+        pair_mask = seq_mask[..., None] * seq_mask[..., None, :]
+        
+        # Initialize the seq and pair representations
+        if check_inf_nan([m,z]):
+            m, z = _nan_to_num(m), _nan_to_num(z)
+        
+        # Initialize the recycling embeddings, if needs be
+        if None in [m_1_prev, z_prev]:
+            # [*, N, C_m]
+            m_1_prev = m.new_zeros(
+                (*batch_dims, n, self.config.input_embedder.c_m),
+                requires_grad=False,
+            )
+
+            # [*, N, N, C_z]
+            z_prev = z.new_zeros(
+                (*batch_dims, n, n, self.config.input_embedder.c_z),
+                requires_grad=False,
+            )
+
+        if x_prev is None:
+            # [*, N, 37, 3]
+            x_prev = z.new_zeros(
+                (*batch_dims, n, residue_constants.atom_type_num, 3),
+                requires_grad=False,
+            )
+
+        # [*, N, 3]
+        x_prev = pseudo_beta_fn(
+            feats["aatype"], x_prev, None
+        ).to(z.dtype)
+
+        if seqs_prev is None:
+            # [*, N, 21]
+            seqs_prev = z.new_zeros(
+                (*batch_dims, n, residue_constants.restype_num + 1),
+                requires_grad=False,
+            )
+            seqs_prev[..., -1] = 1.0
+
+        # m_1_prev_emb: [*, N, C_m]
+        # z_prev_emb: [*, N, N, C_z]
+        m_1_prev_emb, z_prev_emb = self.recycling_embedder(
+            m_1_prev,
+            z_prev,
+            x_prev,
+            seqs_prev,
+        )
+        # If the number of recycling iterations is 0, skip recycling
+        # altogether. We zero them this way instead of computing them
+        # conditionally to avoid leaving parameters unused, which has annoying
+        # implications for DDP training.
+        if not _recycle:
+            m_1_prev_emb = m_1_prev_emb * 0
+            z_prev_emb = z_prev_emb * 0
+
+        # [*, N, C_m]
+        m = m + m_1_prev_emb
+
+        # [*, N, N, C_z]
+        z = z + z_prev_emb
+
+        # Possibly prevents memory fragmentation
+        del m_1_prev, z_prev, x_prev, m_1_prev_emb, z_prev_emb
+
+
+        # Run sequence + pair embeddings through the trunk of the network
+        # m: [*, N, C_m]
+        # z: [*, N, N, C_z]
+        m, z = self.evoformer(
+            m,
+            z,
+            seq_mask=seq_mask.to(dtype=m.dtype),
+            pair_mask=pair_mask.to(dtype=z.dtype),
+            chunk_size=self.globals.chunk_size,
+            _mask_trans=self.config._mask_trans,
+        )
+
+        if check_inf_nan([m,z]):
+            m, z = _nan_to_num(m), _nan_to_num(z)
+        outputs["pair"] = z
+        outputs["single"] = m
+
+        # Predict 3D structure
+        outputs["sm"] = self.structure_module(
+            m,
+            z,
+            feats["aatype"],
+            mask=feats["seq_mask"].to(dtype=m.dtype),
+            initial_rigids=initial_rigids,
+            initial_seqs=initial_seqs,
+        )
+
+        outputs["final_atom_positions"] = atom14_to_atom37(
+            outputs["sm"]["positions"][-1], feats
+        )
+        if "atom37_atom_exists" in feats:
+            outputs["final_atom_mask"] = feats["atom37_atom_exists"]
+        outputs["final_affine_tensor"] = outputs["sm"]["frames"][-1]
+        outputs["final_aatype"] = outputs["sm"]["aatype_"][-1]
+        outputs["final_aatype_dist"] = outputs["sm"]["aatype_dist"][-1] 
+        
+        # [*, N, C_m]
+        m_1_prev = m
+
+        # [*, N, N, C_z]
+        z_prev = z
+
+        # [*, N, 37, 3]
+        x_prev = outputs["final_atom_positions"]
+        
+        seqs_prev = outputs["sm"]["seqs"][-1]
+
+        return outputs, m_1_prev, z_prev, x_prev, seqs_prev
+
+
     def _disable_activation_checkpointing(self):
         self.evoformer.blocks_per_ckpt = None
 
@@ -257,6 +393,7 @@ class AlphaFold(nn.Module):
                         2-D pair mask
         """
         # Initialize recycling embeddings
+        m, z = None, None
         m_1_prev, z_prev, x_prev = None, None, None
         seqs_prev = None
 
@@ -275,6 +412,13 @@ class AlphaFold(nn.Module):
             initial_rigids = None
             #problem: initial rigids always None?
             
+            if (cycle_no==0):
+                m, z = self.input_embedder(
+                    feats["target_feat"],
+                    feats["residue_index"],
+                    feats["seq_mask"],
+                )
+
             # Enable grad iff we're training and it's the final recycling layer
             is_final_iter = cycle_no == (num_iters - 1)
             with torch.set_grad_enabled(is_grad_enabled and is_final_iter):
@@ -285,8 +429,10 @@ class AlphaFold(nn.Module):
                         torch.clear_autocast_cache()
 
                 # Run the next iteration of the model
-                outputs, m_1_prev, z_prev, x_prev, seqs_prev = self.iteration(
+                outputs, m_1_prev, z_prev, x_prev, seqs_prev = self.iter(
                     feats,
+                    m,
+                    z,
                     m_1_prev,
                     z_prev,
                     x_prev,

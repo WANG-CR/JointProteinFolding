@@ -215,7 +215,10 @@ class EvoformerStack(nn.Module):
             )
             self.blocks.append(block)
 
-        self.linear = Linear(c_m, c_s)
+        # self.trunk2sm_s = nn.Linear(c_s, 384)
+        # self.trunk2sm_z = nn.Linear(c_z, 128)
+
+        # self.linear = Linear(c_m, c_s)
 
     def forward(self,
         m: torch.Tensor,
@@ -270,6 +273,5 @@ class EvoformerStack(nn.Module):
         )
         check_inf_nan(z)
         check_inf_nan(m)
-        s = self.linear(m)
-        check_inf_nan(s)
-        return m, z, s
+        return m, z
+

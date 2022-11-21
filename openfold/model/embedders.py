@@ -6,11 +6,13 @@ import logging
 from openfold.model.primitives import Linear, LayerNorm
 from openfold.utils.tensor_utils import one_hot
 import ml_collections as mlc
+from openfold.np import residue_constants
+import itertools
+import typing
 
 class InputEmbedder(nn.Module):
     """
     Embeds a subset of the input features.
-
     Implements Algorithms 3 (InputEmbedder) and 4 (relpos).
     """
 
@@ -43,34 +45,77 @@ class InputEmbedder(nn.Module):
         logging.info(f"tf_dim is {tf_dim}")
         self.c_z = c_z
         self.c_m = c_m
-        if not residue_emb_cfg["enabled"]:
-            self.linear_tf_z_i = Linear(tf_dim, c_z)
-            self.linear_tf_z_j = Linear(tf_dim, c_z)
-            self.linear_tf_m = Linear(tf_dim, c_m)
 
         # RPE stuff
         self.relpos_k = relpos_k
         self.no_bins = 2 * relpos_k + 1
         self.linear_relpos = Linear(self.no_bins, c_z)
 
-        self.esm_model, _ = torch.hub.load("facebookresearch/esm:main", "esm2_t33_650M_UR50D")
-        emb_input_dim = 1280
-        self.linear_emb_m = Linear(emb_input_dim, c_m)
-        self.linear_emb_z_i = Linear(emb_input_dim, c_z)
-        self.linear_emb_z_j = Linear(emb_input_dim, c_z)
-        self.tf_squeeze_flag = False
+        # self.esm_model, _ = torch.hub.load("facebookresearch/esm:main", "esm2_t33_650M_UR50D")
+        self.esm_model, self.esm_dict = torch.hub.load("facebookresearch/esm:main", "esm2_t33_650M_UR50D")
+        self.esm_model.requires_grad_(False)
 
-        self.residue_attn_cfg = residue_attn_cfg
-        self.residue_emb_cfg = residue_emb_cfg
-        # if self.residue_attn_cfg["enabled"]:
-        #     attn_input_dim = self.residue_attn_cfg["c_emb"]
-        #     self.linear_attn = Linear(attn_input_dim, c_z)
-        if self.residue_emb_cfg["enabled"]:
-            logging.warning(f"residue emb is set as: {self.residue_emb_cfg['usage']}")
-        if not self.residue_emb_cfg["enabled"]:   
-            logging.warning('residue emb cfg not enabled')  
-        # self.is_lm_finetune = False
+        self.register_buffer("af2_to_esm", InputEmbedder._af2_to_esm(self.esm_dict))
+        self.esm_s_combine = nn.Parameter(torch.zeros(self.esm_model.num_layers + 1))
+
+        self.n_tokens_embed = residue_constants.restype_num + 3
+        self.pad_idx = 0
+        self.unk_idx = self.n_tokens_embed - 2
+        self.mask_idx = self.n_tokens_embed - 1
+        self.embedding = nn.Embedding(self.n_tokens_embed, c_m, padding_idx=0)
+
+        ##ESM FOLD
+        # sequence_state_dim: int = 1024
+        # pairwise_state_dim: int = 128
+        # sequence_head_width: int = 32
+        # pairwise_head_width: int = 32
+        # position_bins: int = 32
+        # dropout: float = 0
+        # layer_drop: float = 0
+        # cpu_grad_checkpoint: bool = False
+
+        # max_recycles: int = 4
+        # chunk_size: T.Optional[int] = None
+        emb_input_dim = 1280
+        self.esm_s_mlp = nn.Sequential(
+            LayerNorm(emb_input_dim),
+            nn.Linear(emb_input_dim, c_m),
+            nn.ReLU(),
+            nn.Linear(c_m, c_m),
+        )
+
+
         self.is_lm_finetune = True
+
+    @staticmethod
+    def _af2_to_esm(d):
+        # Remember that t is shifted from residue_constants by 1 (0 is padding).
+        esm_reorder = [d.padding_idx] + [d.get_idx(v) for v in residue_constants.restypes_with_x]
+        return torch.tensor(esm_reorder)
+
+    def _af2_idx_to_esm_idx(self, aa, mask):
+        aa = (aa + 1).masked_fill(mask != 1, 0)
+        return self.af2_to_esm[aa]
+
+    def _compute_language_model_representations(self, esmaa: torch.Tensor) -> torch.Tensor:
+        """Adds bos/eos tokens for the language model, since the structure module doesn't use these."""
+        batch_size = esmaa.size(0)
+
+        bosi, eosi = self.esm_dict.cls_idx, self.esm_dict.eos_idx
+        bos = esmaa.new_full((batch_size, 1), bosi)
+        eos = esmaa.new_full((batch_size, 1), self.esm_dict.padding_idx)    
+        esmaa = torch.cat([bos, esmaa, eos], dim=1)
+        # Use the first padding index as eos during inference.
+        esmaa[range(batch_size), (esmaa != 1).sum(1)] = eosi
+
+        res = self.esm_model(
+            esmaa,
+            repr_layers=range(self.esm_model.num_layers + 1),
+            need_head_weights=False,
+        )
+        esm_s = torch.stack([v for _, v in sorted(res["representations"].items())], dim=2)
+        esm_s = esm_s[:, 1:-1]  # B, L, nLayers, C
+        return esm_s
 
     def relpos(self, ri: torch.Tensor):
         """
@@ -109,6 +154,7 @@ class InputEmbedder(nn.Module):
         tf_esm = torch.cat((cls,tf_esm),1)
         eos = torch.tensor([[2-count]]).to(tf_esm.device)
         tf_esm = torch.cat((tf_esm,eos),1)
+        print(f"converted index is {tf_esm}")
         return tf_esm
 
 
@@ -155,12 +201,11 @@ class InputEmbedder(nn.Module):
             "logits": logits,
         }
 
-
     def forward(
         self,
         tf: torch.Tensor,
         ri: torch.Tensor,
-        initial_seqs: Optional[torch.Tensor],
+        mask: typing.Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Args:
@@ -176,71 +221,29 @@ class InputEmbedder(nn.Module):
                 "pair embedding" features [*, N_res, N_res, C_z] 
         """
 
-        tf_emb_i = None
-        tf_emb_j = None
-        tf_m = None
+        ## using ESMFold lm encoding function
+        tf = tf.argmax(axis=-1).long()
+        B = tf.shape[0]
+        L = tf.shape[1]
+        if mask is None:
+            mask = torch.ones_like(tf)
+        esmaa = self._af2_idx_to_esm_idx(tf, mask)
+        # print(f"esmaa during foward is {esmaa}")
+        tf_esm = self._compute_language_model_representations(esmaa)
 
-        if not self.residue_emb_cfg["enabled"]:
-            # [*, N_res, c_z]
-            tf_emb_i = self.linear_tf_z_i(tf)
-            tf_emb_j = self.linear_tf_z_j(tf)
-            # [*, N_res, c_m]
-            tf_m = self.linear_tf_m(tf)
-        residue_emb_m = None
-
-        if self.residue_emb_cfg["enabled"]:
-            # initialize functions to digest pre-trained residue embeddings
-            fn_cat = lambda i, j, emb_z_i, emb_z_j, m, emb_m: (i + emb_z_i, j + emb_z_j, m + emb_m)
-            fn_replace = lambda i, j, emb_z_i, emb_z_j, m, emb_m: (emb_z_i, emb_z_j, emb_m)
-            fn_msa = lambda i, j, emb_z_i, emb_z_j, m, emb_m: (i, j, m)
-            fn_dict = {
-                "cat": fn_cat,
-                "replace": fn_replace,
-                "msa": fn_msa
-            }
-            
-            representation = self.residue_encoding(tf)
-            # tf_esm, attn = self.residue_encoding(tf, chain_index_copy)
-            tf_esm = representation["tf"]
-            if self.residue_emb_cfg["usage"] != "msa":                      
-                residue_emb_z_i = self.linear_emb_z_i(tf_esm) # [*, N_res, c_z]
-                residue_emb_z_j = self.linear_emb_z_j(tf_esm) # [*, N_res, c_z]
-                residue_emb_m = self.linear_emb_m(tf_esm) # [*, N_res, c_m]
-            
-            else:
-                residue_emb_z_i = None
-                residue_emb_z_j = None
-                # [[*, N_res, emb_dim]...]
-                # Warning: Note that this operation is order-sensitve!
-                per_model_residue_emb = []
-                for i, layer in enumerate(self.linear_emb_m):
-                    per_model_residue_emb.append(layer(emb[i]))
-                    
-                # [*, N_model, N_res, c_m]
-                residue_emb_m = torch.stack(per_model_residue_emb, dim=-3)
-              
-            tf_emb_i, tf_emb_j, tf_m = fn_dict[self.residue_emb_cfg["usage"]](
-                tf_emb_i, tf_emb_j, 
-                residue_emb_z_i, residue_emb_z_j,
-                tf_m, residue_emb_m
-            )
-
-        # [*, N_res, N_res, c_z]
-        pair_emb = tf_emb_i[..., None, :] + tf_emb_j[..., None, :, :]
-        pair_emb = pair_emb + self.relpos(ri.type(pair_emb.dtype))
+        tf_esm = tf_esm.to(self.esm_s_combine.dtype)
+        tf_esm = tf_esm.detach()
         
-        # residue_attn enabled
-        if self.residue_attn_cfg["enabled"]:
-            attn = representation["attention"].unsqueeze(-1)
-            contact = representation["contact"].unsqueeze(-1)
-            logits = representation["logits"].unsqueeze(-1).unsqueeze(-1)
-            assert attn is not None
-            # attn_feat = self.linear_attn(attn)
-            pair_emb = pair_emb + attn * 0 + contact * 0 + logits * 0.0
-            # attn_feat = self.linear_attn(attn)
-            # pair_emb = pair_emb + attn_feat
+        ## preprocessing
+        esm_s = (self.esm_s_combine.softmax(0).unsqueeze(0) @ tf_esm).squeeze(2)
 
-        return tf_m, pair_emb
+        s_s_0 = self.esm_s_mlp(esm_s)
+        s_z_0 = s_s_0.new_zeros(B, L, L, self.c_z)
+        
+        s_s_0 += self.embedding(tf)
+        s_z_0 += self.relpos(ri.type(s_s_0.dtype))
+
+        return s_s_0, s_z_0
 
 
 from openfold.model.gvp.gvp_encoder import GVPEncoder
