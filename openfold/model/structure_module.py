@@ -547,7 +547,7 @@ class StructureModuleTransition(nn.Module):
 class StructureModule(nn.Module):
     def __init__(
         self,
-        c_s,
+        c_m,
         c_z,
         c_ipa,
         c_resnet,
@@ -600,7 +600,7 @@ class StructureModule(nn.Module):
         """
         super(StructureModule, self).__init__()
 
-        self.c_s = c_s
+        self.c_s = c_m
         self.c_z = c_z
         self.c_ipa = c_ipa
         self.c_resnet = c_resnet

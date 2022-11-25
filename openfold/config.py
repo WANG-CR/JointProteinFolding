@@ -83,8 +83,11 @@ violation_weight = mlc.FieldReference(0.0, field_type=float)
 tm_weight = mlc.FieldReference(0.0, field_type=float)
 
 c_z = mlc.FieldReference(128, field_type=int)
-c_m = mlc.FieldReference(256, field_type=int)
-c_s = mlc.FieldReference(384, field_type=int)
+c_m = mlc.FieldReference(1024, field_type=int)
+
+c_m_structure = mlc.FieldReference(384, field_type=int)
+c_z_structure = mlc.FieldReference(128, field_type=int)
+
 blocks_per_ckpt = mlc.FieldReference(None, field_type=int)
 chunk_size = mlc.FieldReference(4, field_type=int)
 aux_distogram_bins = mlc.FieldReference(64, field_type=int)
@@ -198,7 +201,8 @@ config = mlc.ConfigDict(
             "chunk_size": chunk_size,
             "c_z": c_z,
             "c_m": c_m,
-            "c_s": c_s,
+            "c_z_structure": c_z_structure,
+            "c_m_structure": c_m_structure,
             "eps": eps,
             "low_prec": False,
         },
@@ -215,6 +219,12 @@ config = mlc.ConfigDict(
         "model": {
             "_mask_trans": True,
             "input_embedder": {
+                "tf_dim": 21,
+                "c_z": c_z,
+                "c_m": c_m,
+                "relpos_k": 32,
+            },
+            "inverse_input_embedder": {
                 "tf_dim": 21,
                 "c_z": c_z,
                 "c_m": c_m,
@@ -241,11 +251,31 @@ config = mlc.ConfigDict(
             "evoformer_stack": {
                 "c_m": c_m,
                 "c_z": c_z,
+                "c_m_structure": c_m_structure,
+                "c_z_structure": c_z_structure,
                 "c_hidden_seq_att": 32,
                 "c_hidden_opm": 32,
                 "c_hidden_mul": 128,
                 "c_hidden_pair_att": 32,
-                "c_s": c_s,
+                "no_heads_seq": 8,
+                "no_heads_pair": 4,
+                "no_blocks": 48,
+                "transition_n": 4,
+                "seq_dropout": 0.15,
+                "pair_dropout": 0.25,
+                "blocks_per_ckpt": blocks_per_ckpt,
+                "clear_cache_between_blocks": False,
+                "inf": 1e9,
+            },
+            "inverse_evoformer_stack": {
+                "c_m": c_m,
+                "c_z": c_z,
+                "c_m_structure": c_m_structure,
+                "c_z_structure": c_z_structure,
+                "c_hidden_seq_att": 32,
+                "c_hidden_opm": 32,
+                "c_hidden_mul": 128,
+                "c_hidden_pair_att": 32,
                 "no_heads_seq": 8,
                 "no_heads_pair": 4,
                 "no_blocks": 48,
@@ -257,8 +287,25 @@ config = mlc.ConfigDict(
                 "inf": 1e9,
             },
             "structure_module": {
-                "c_s": c_s,
-                "c_z": c_z,
+                "c_m": c_m_structure,
+                "c_z": c_z_structure,
+                "c_ipa": 16,
+                "c_resnet": 128,
+                "no_heads_ipa": 12,
+                "no_qk_points": 4,
+                "no_v_points": 8,
+                "dropout_rate": 0.1,
+                "no_blocks": 8,
+                "no_transition_layers": 1,
+                "no_resnet_blocks": 2,
+                "no_angles": 7,
+                "trans_scale_factor": 10,
+                "epsilon": eps,  # 1e-12,
+                "inf": 1e5,
+            },
+            "inverse_structure_module": {
+                "c_m": c_m_structure,
+                "c_z": c_z_structure,
                 "c_ipa": 16,
                 "c_resnet": 128,
                 "no_heads_ipa": 12,
@@ -276,23 +323,23 @@ config = mlc.ConfigDict(
             "heads": {
                 "lddt": {
                     "no_bins": 50,
-                    "c_in": c_s,
+                    "c_in": c_m_structure,
                     "c_hidden": 128,
                     "weight": lddt_weight,
                 },
                 "distogram": {
-                    "c_z": c_z,
+                    "c_z": c_z_structure,
                     "no_bins": aux_distogram_bins,
                     "weight": distogram_weight,
                 },
                 "tm": {
-                    "c_z": c_z,
+                    "c_z": c_z_structure,
                     "no_bins": aux_distogram_bins,
                     "enabled": tm_enabled,
                     "weight": tm_weight,
                 },
                 "experimentally_resolved": {
-                    "c_s": c_s,
+                    "c_s": c_m_structure,
                     "c_out": 37,
                     "weight": experimentally_resolved_weight,
                 },

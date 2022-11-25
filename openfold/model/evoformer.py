@@ -140,11 +140,12 @@ class EvoformerStack(nn.Module):
         self,
         c_m: int,
         c_z: int,
+        c_m_structure: int,
+        c_z_structure: int,
         c_hidden_seq_att: int,
         c_hidden_opm: int,
         c_hidden_mul: int,
         c_hidden_pair_att: int,
-        c_s: int,
         no_heads_seq: int,
         no_heads_pair: int,
         no_blocks: int,
@@ -215,9 +216,6 @@ class EvoformerStack(nn.Module):
             )
             self.blocks.append(block)
 
-        # self.trunk2sm_s = nn.Linear(c_s, 384)
-        # self.trunk2sm_z = nn.Linear(c_z, 128)
-
         # self.linear = Linear(c_m, c_s)
 
     def forward(self,
@@ -273,5 +271,6 @@ class EvoformerStack(nn.Module):
         )
         check_inf_nan(z)
         check_inf_nan(m)
+
         return m, z
 

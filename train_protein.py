@@ -336,9 +336,7 @@ def main(args):
         ckpt_path=ckpt_path,
     )
 
-
     # abandon pl, using normal pytorch training
-
 
 
 def bool_type(bool_str: str):

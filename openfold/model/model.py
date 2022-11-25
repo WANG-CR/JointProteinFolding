@@ -65,6 +65,10 @@ class AlphaFold(nn.Module):
             self.config["heads"],
         )
 
+        self.trunk2sm_s = nn.Linear(self.config["evoformer_stack"]['c_m'], self.config["evoformer_stack"]['c_m_structure'])
+        self.trunk2sm_z = nn.Linear(self.config["evoformer_stack"]['c_z'], self.config["evoformer_stack"]['c_z_structure'])
+
+
     def iteration(
         self, feats, m_1_prev, z_prev, x_prev, seqs_prev,
         initial_rigids=None,
@@ -324,6 +328,14 @@ class AlphaFold(nn.Module):
         outputs["pair"] = z
         outputs["single"] = m
 
+        # [*, N, C_m]
+        m_1_prev = m
+        # [*, N, N, C_z]
+        z_prev = z
+
+        m = self.trunk2sm_s(m)
+        z = self.trunk2sm_z(z)
+
         # Predict 3D structure
         outputs["sm"] = self.structure_module(
             m,
@@ -343,12 +355,6 @@ class AlphaFold(nn.Module):
         outputs["final_aatype"] = outputs["sm"]["aatype_"][-1]
         outputs["final_aatype_dist"] = outputs["sm"]["aatype_dist"][-1] 
         
-        # [*, N, C_m]
-        m_1_prev = m
-
-        # [*, N, N, C_z]
-        z_prev = z
-
         # [*, N, 37, 3]
         x_prev = outputs["final_atom_positions"]
         
@@ -389,8 +395,6 @@ class AlphaFold(nn.Module):
                         consecutive indices from 0 to N_res.
                     "seq_mask" ([*, N_res])
                         1-D sequence mask
-                    "pair_mask" ([*, N_res, N_res])
-                        2-D pair mask
         """
         # Initialize recycling embeddings
         m, z = None, None

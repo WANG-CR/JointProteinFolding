@@ -124,30 +124,18 @@ class AlphaFoldInverse(nn.Module):
 
         # Main trunk + structure module
         self.input_embedder = GVPEmbedder(
-            **self.config["input_embedder"],
+            **self.config["inverse_input_embedder"],
         )
 
         self.evoformer = EvoformerStack(
-            **self.config["evoformer_stack"],
+            **self.config["inverse_evoformer_stack"],
         )
 
         self.use_mlp = True
         self.mlp = MultiLayerPerceptron(
-            input_dim=self.config["structure_module"]["c_s"],
-            hidden_dims=[self.config["structure_module"]["c_s"], restype_num + 1],
+            input_dim=self.config["inverse_evoformer_stack"]["c_m"],
+            hidden_dims=[self.config["inverse_structure_module"]["c_m"], self.config["inverse_structure_module"]["c_m"], restype_num + 1],
         )
-
-        # if "use_mlp" in self.config and self.config["use_mlp"]:
-        #     self.mlp = MultiLayerPerceptron(
-        #         input_dim=self.config["structure_module"]["c_s"],
-        #         hidden_dims=[self.config["structure_module"]["c_s"], restype_num + 1],
-        #     )
-        #     self.use_mlp = True
-        # else:
-        #     self.structure_module = StructureModule(
-        #         **self.config["structure_module"],
-        #     )
-        #     self.use_mlp = False
         
         self.aux_heads = None
 
@@ -230,8 +218,7 @@ class AlphaFoldInverse(nn.Module):
         # Run sequence + pair embeddings through the trunk of the network
         # m: [*, N, C_m]
         # z: [*, N, N, C_z]
-        # s: [*, N, C_s]
-        m, z, s = self.evoformer(
+        m, z = self.evoformer(
             m,
             z,
             seq_mask=seq_mask.to(dtype=m.dtype),
@@ -240,31 +227,14 @@ class AlphaFoldInverse(nn.Module):
             _mask_trans=self.config._mask_trans,
         )
 
-        if check_inf_nan([m, z, s]):
-            m, z, s = _nan_to_num(m), _nan_to_num(z), _nan_to_num(s)
+        if check_inf_nan([m, z]):
+            m, z = _nan_to_num(m), _nan_to_num(z)
         
-        # print('m,z, s', m.dtype, z.dtype, s.dtype)
-
-        # outputs["pair"] = z
-        # outputs["single"] = s
-
-        ###### Never compute latent
-       
         # Predict 3D structure
         if self.use_mlp:
-            logits = self.mlp(s)
+            logits = self.mlp(m)
             outputs["sm"] = {}
             outputs["sm"]["seqs_logits"] = logits.unsqueeze(0)
-        else:
-            outputs["sm"] = self.structure_module(
-                s,
-                z,
-                feats["aatype"][..., 0],    # never mind that
-                mask=feats["seq_mask"][..., -1].to(dtype=s.dtype),
-                initial_rigids=initial_rigids,
-                initial_seqs=initial_seqs,
-                denoise_feats=denoise_feats,
-            )
 
         # [*, N, C_m]
         m_1_prev = m
@@ -410,18 +380,7 @@ class AlphaFoldInverse(nn.Module):
         seq_mask = feats["seq_mask"][..., 0]
         # logging.info(f'feats["coords"] size during iteration is {feats["coords"].shape}')
         pair_mask = seq_mask[..., None] * seq_mask[..., None, :]
-        # logging.info(f"pair_mask size during iteration is {pair_mask.shape}")
-        # # check_inf_nan(feats["coords"])
-        # logging.info(f'feats["target_feat"] size during iteration is {feats["target_feat"].shape}')
-        # logging.info(f'feats["residue_index"] size during iteration is {feats["residue_index"].shape}')
-        # logging.info(f'feats["aatype"] size during iteration is {feats["aatype"].shape}')
-        # seq_len = int(feats['seq_mask'][..., 0].sum())
-        # logging.info(f"seq mask size during iteration is {feats['seq_mask'][..., -1].shape}")
-        # logging.info(f"seq mask sum during iteration is {seq_len}")
-        # logging.info(f'feats["aatype"] during iteration is {feats["aatype"][:, seq_len-2:seq_len+3, 0]}')
-        # logging.info(f'feats["target_feat"] during iteration is {feats["target_feat"][:, seq_len-2:seq_len+3, :, 0]}')
-        # logging.info(f"coords shape is {feats['coords'].shape}")
-        # logging.info(f"coords is {feats['coords'][0, 0, ..., 0]}")
+
         ## Calculate contact
         ## [*, N, N]
         contact = None
@@ -456,7 +415,7 @@ class AlphaFoldInverse(nn.Module):
         # m: [*, N, C_m]
         # z: [*, N, N, C_z]
         # s: [*, N, C_s]
-        m, z, s = self.evoformer(
+        m, z = self.evoformer(
             m,
             z,
             seq_mask=seq_mask.to(dtype=m.dtype),
@@ -464,31 +423,17 @@ class AlphaFoldInverse(nn.Module):
             chunk_size=self.globals.chunk_size,
             _mask_trans=self.config._mask_trans,
         )
-        # m, z, s = _nan_to_num(m), _nan_to_num(z), _nan_to_num(s)
 
-        check_inf_nan([m, z, s])
-        # print('m,z, s', m.dtype, z.dtype, s.dtype)
+        check_inf_nan([m, z])
 
-        # outputs["pair"] = z
-        # outputs["single"] = s
 
         ###### Never compute latent
        
         # Predict 3D structure
         if self.use_mlp:
-            logits = self.mlp(s)
+            logits = self.mlp(m)
             outputs["sm"] = {}
             outputs["sm"]["seqs_logits"] = logits.unsqueeze(0)
-        else:
-            outputs["sm"] = self.structure_module(
-                s,
-                z,
-                feats["aatype"][..., 0],    # never mind that
-                mask=feats["seq_mask"][..., -1].to(dtype=s.dtype),
-                initial_rigids=initial_rigids,
-                initial_seqs=initial_seqs,
-                denoise_feats=denoise_feats,
-            )
 
         # [*, N, C_m]
         m_1_prev = m

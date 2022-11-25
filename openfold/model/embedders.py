@@ -42,7 +42,6 @@ class InputEmbedder(nn.Module):
         super(InputEmbedder, self).__init__()
 
         self.tf_dim = tf_dim
-        logging.info(f"tf_dim is {tf_dim}")
         self.c_z = c_z
         self.c_m = c_m
 
@@ -51,8 +50,10 @@ class InputEmbedder(nn.Module):
         self.no_bins = 2 * relpos_k + 1
         self.linear_relpos = Linear(self.no_bins, c_z)
 
-        # self.esm_model, _ = torch.hub.load("facebookresearch/esm:main", "esm2_t33_650M_UR50D")
         self.esm_model, self.esm_dict = torch.hub.load("facebookresearch/esm:main", "esm2_t33_650M_UR50D")
+        emb_input_dim = 1280
+        # self.esm_model, self.esm_dict = torch.hub.load("facebookresearch/esm:main", "esm2_t36_3B_UR50D")
+        # emb_input_dim = 2560
         self.esm_model.requires_grad_(False)
 
         self.register_buffer("af2_to_esm", InputEmbedder._af2_to_esm(self.esm_dict))
@@ -76,7 +77,6 @@ class InputEmbedder(nn.Module):
 
         # max_recycles: int = 4
         # chunk_size: T.Optional[int] = None
-        emb_input_dim = 1280
         self.esm_s_mlp = nn.Sequential(
             LayerNorm(emb_input_dim),
             nn.Linear(emb_input_dim, c_m),
