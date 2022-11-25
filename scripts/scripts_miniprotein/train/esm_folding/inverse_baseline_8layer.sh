@@ -4,8 +4,8 @@
 #SBATCH --gpus-per-node=4
 #SBATCH -p compute_full_node
 #SBATCH --time=12:00:00
-#SBATCH --output=/scratch/b/bengioy/chuanrui/backup/alphafold/output_miniprotein/slurm_log/inverse_fp32_v2.out
-#SBATCH --error=/scratch/b/bengioy/chuanrui/backup/alphafold/output_miniprotein/slurm_log/inverse_fp32_v2.err
+#SBATCH --output=/scratch/b/bengioy/chuanrui/backup/alphafold/output_miniprotein/slurm_log/inverse_8layer.out
+#SBATCH --error=/scratch/b/bengioy/chuanrui/backup/alphafold/output_miniprotein/slurm_log/inverse_8layer.err
 
 # 1. Activate environment
 ENV_NAME=fold3
@@ -24,10 +24,11 @@ OUTPUT_DIR=$WORK_DIR/output_miniprotein
 TORCH_DISTRIBUTED_DEBUG=INFO srun python train_invfold.py $TRAIN_DIR $OUTPUT_DIR \
     --val_data_dir $VALID_DIR \
     --seed 2024 \
-    --yaml_config_preset yaml_config/inverse2.yml \
+    --yaml_config_preset yaml_config/replace_esmFold_16+8.yml \
     --precision 32 --gpus 4 --log_every_n_steps 25 \
     --wandb true \
     --wandb_entity chuanrui \
-    --wandb_version inverse_fp32_v2 \
+    --wandb_version inverse_8layer \
     --wandb_project miniprotein \
     --train_epoch_len 500 \
+

@@ -1,21 +1,26 @@
 model:
   evoformer_stack:
-    no_blocks: 32
+    no_blocks: 16
   structure_module:
-    no_blocks: 32
-    c_s: 1024
-  input_embedder:
-    c_m: 1024
+    no_blocks: 16
+  inverse_evoformer_stack:
+    no_blocks: 8
   residue_emb:
     enabled: true
     usage: replace
   residue_attn:
     enabled: true
+
+globals:
+  c_m: 1024
+  c_z: 128
+  c_m_structure: 384
+  c_z_structure: 128
     
 data:
   data_module:
     data_loaders:
-      num_workers: 8
+      num_workers: 10
 
 optimizer:
   lr: 0.0005
