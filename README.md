@@ -57,25 +57,62 @@ Note that CATH dataset and miniprotein dataset are both PDB type data, which con
 
 ## Usage
 ### Training
+    To train the model, you will not need to precompute protein alignments.
 
-To train the model, you will not need to precompute protein alignments.
+    You have three options:
+    1. train protein folding model individually
+    2. train protein inverse folding model individually
+    3. train these models together, by adding a joint training loss
 
-You have three options:
-1. train protein folding model individually
-2. train protein inverse folding model individually
-3. train these models together, by adding a joint training loss
-
-You can follow the same procedure in scripts provided in 
-```
-scripts_cath/train_mist/folding
-scripts_cath/train_mist/inverse_folding
-scripts_cath/train_mist/joint
-```
+    You can follow the same procedure in the following scripts to start the training (with `bash xxx.sh`). Note that you may need to modify a few variables.
+    ```
+    scripts/example/train_foldingModel_cath.sh
+    scripts/example/train_inverseFoldingModel_cath.sh
+    scripts/example/train_jointModel_miniprotein.sh
+    ```
+    
+    If you are using slurm job system, you can submit the job with `sbatch xxx.sh`.
 
 ### Configuration setup
+    You can simply modify model configuration by writing different yaml files.
+    We simply look at an example `replace_esmFold_16+16.yml`, which implies a foldingModel's configuration of 16 evoformer layers and 16 structure modules. It also configures 16 evoformers layer in the inverse folding model, which will be useful during joint training setup:
+
+    ```
+    model:
+        evoformer_stack:    # define the number of layers in folding model
+            no_blocks: 16
+        structure_module:
+            no_blocks: 16
+        inverse_evoformer_stack:    # define the number of layers in folding model
+            no_blocks: 16
+    
+    globals:
+        c_m: 1024   # define the hidden size
+        c_z: 128
+        c_m_structure: 384
+        c_z_structure: 128
+        
+    data:
+        data_module:
+            data_loaders:
+                num_workers: 10
+
+    optimizer:
+        lr: 0.0005  # define the learning rate
+
+    scheduler:  # define the LRscheduler
+        warmup_no_steps: 5000
+        start_decay_after_n_steps: 50000
+        decay_every_n_steps: 5000
+    ```
 
 
 
+
+### Logging with W&B
+    The codebase currently use Weight&Bias tool to help save the logs, training curves and validation curves.
+
+    If you have not initialize W&B(wandb), please kindly follow the [instruction](https://wandb.ai/quickstart/pytorch) here.
 
 ## Copyright notice
 
