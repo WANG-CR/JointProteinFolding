@@ -20,7 +20,40 @@ source activate pf3
 
 
 ## Prepare Datasets and Benchmarks*
+1. Link of CATH general protein dataset: 
+```https://drive.google.com/file/d/1bU2wd5bnLkuvb0yFScW0dgpuf3ZXr8dh/view?usp=sharing```
 
+    The CATH folder is structured as follows
+    ```
+    structure_datasets
+    |
+    |___cath
+        |
+        |___processed/  # the whole dataset after preprocessing
+            |   
+            |___top_split_512_2023_0.01_0.04_train/  # train split
+            |   
+            |___top_split_512_2023_0.01_0.04_valid/ # valid split
+            |
+            |___top_split_512_2023_0.01_0.04_test/ # test split
+    ```
+
+2. Link of miniprotein dataset: 
+```https://drive.google.com/file/d/1hrNHHgE8DhrpPrKMDfysAfF3fKtcNzuq/view?usp=sharing```
+
+    The miniprotein folder is structured as follows
+    ```
+    miniprotein
+    |___filtered/  # the whole dataset after preprocessing
+    |   
+    |___train/ # train split
+    |   
+    |___valid/ # valid split
+    |
+    |___test/ # test split
+    ```
+
+Note that CATH dataset and miniprotein dataset are both PDB type data, which contains atom-level structures of Protein. Please download and unzip these data into a `database` folder, and we will use these data to train the Folding model and InverseFolding model soon.
 
 ## Usage
 ### Training
