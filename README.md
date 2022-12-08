@@ -74,7 +74,13 @@ Note that CATH dataset and miniprotein dataset are both PDB type data, which con
     scripts/example/train_jointModel_miniprotein.sh
     ```
     
-    If you are using slurm job system, you can submit the job with `sbatch xxx.sh`.
+
+    We also make training ESMFold possible with our framework:
+    ```
+    scripts/example/train_esmFold_cath.sh
+    ```
+
+    Note: if you are using slurm job system, you can submit the job with `sbatch xxx.sh`.
 
 ### Configuration setup
     You can simply modify model configuration by writing different yaml files.

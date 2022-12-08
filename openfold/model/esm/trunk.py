@@ -4,7 +4,7 @@
 # LICENSE file in the root directory of this source tree.
 import typing as T
 from contextlib import ExitStack
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 
 import torch
 import torch.nn as nn
@@ -35,7 +35,8 @@ class StructureModuleConfig:
 @dataclass
 class FoldingTrunkConfig:
     _name: str = "FoldingTrunkConfig"
-    num_blocks: int = 48
+    # num_blocks: int = 48
+    num_blocks: int = 8
     sequence_state_dim: int = 1024
     pairwise_state_dim: int = 128
     sequence_head_width: int = 32
@@ -141,7 +142,12 @@ class FoldingTrunk(nn.Module):
         self.recycle_disto = nn.Embedding(self.recycle_bins, c_z)
         self.recycle_disto.weight[0].detach().zero_()
 
-        self.structure_module = StructureModule(**self.cfg.structure_module)  # type: ignore
+        # print(self.cfg)
+        # need to convert to dict using asdict
+        if (isinstance(self.cfg.structure_module, dict)):
+            self.structure_module = StructureModule(**(self.cfg.structure_module))  # type: ignore
+        else:
+            self.structure_module = StructureModule(**asdict(self.cfg.structure_module))  # type: ignore
         self.trunk2sm_s = nn.Linear(c_s, self.structure_module.c_s)
         self.trunk2sm_z = nn.Linear(c_z, self.structure_module.c_z)
 
@@ -200,8 +206,14 @@ class FoldingTrunk(nn.Module):
                 s_s, s_z = trunk_iter(s_s_0 + recycle_s, s_z_0 + recycle_z, residx, mask)
 
                 # === Structure module ===
+                # structure = self.structure_module(
+                #     {"single": self.trunk2sm_s(s_s), "pair": self.trunk2sm_z(s_z)},
+                #     true_aa,
+                #     mask.float(),
+                # )
                 structure = self.structure_module(
-                    {"single": self.trunk2sm_s(s_s), "pair": self.trunk2sm_z(s_z)},
+                    self.trunk2sm_s(s_s),
+                    self.trunk2sm_z(s_z),
                     true_aa,
                     mask.float(),
                 )

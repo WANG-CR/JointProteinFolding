@@ -30,6 +30,43 @@ from openfold.utils.tensor_utils import (
     batched_gather,
 )
 
+class CategoricalMixture:
+    def __init__(self, param, bins=50, start=0, end=1):
+        # All tensors are of shape ..., bins.
+        self.logits = param
+        bins = torch.linspace(
+            start, end, bins + 1, device=self.logits.device, dtype=self.logits.dtype
+        )
+        self.v_bins = (bins[:-1] + bins[1:]) / 2
+
+    def log_prob(self, true):
+        # Shapes are:
+        #     self.probs: ... x bins
+        #     true      : ...
+        true_index = (
+            (
+                true.unsqueeze(-1)
+                - self.v_bins[
+                    [
+                        None,
+                    ]
+                    * true.ndim
+                ]
+            )
+            .abs()
+            .argmin(-1)
+        )
+        nll = self.logits.log_softmax(-1)
+        return torch.take_along_dim(nll, true_index.unsqueeze(-1), dim=-1).squeeze(-1)
+
+    def mean(self):
+        return (self.logits.softmax(-1) @ self.v_bins.unsqueeze(1)).squeeze(-1)
+
+
+def categorical_lddt(logits, bins=50):
+    # Logits are ..., 37, bins.
+    return CategoricalMixture(logits, bins=bins).mean()
+
 
 def softmax_cross_entropy(logits, labels):
     loss = -1 * torch.sum(
@@ -290,6 +327,28 @@ def fape_loss(
 
     return loss
 
+def fape_esm_loss(
+    out: Dict[str, torch.Tensor],
+    batch: Dict[str, torch.Tensor],
+    config: ml_collections.ConfigDict,
+) -> torch.Tensor:
+    bb_loss = backbone_loss(
+        traj=out["frames"],
+        **{**batch, **config.backbone},
+    )
+
+    sc_loss = sidechain_loss(
+        out["sidechain_frames"],
+        out["positions"],
+        **{**batch, **config.sidechain},
+    )
+
+    loss = config.backbone.weight * bb_loss + config.sidechain.weight * sc_loss
+    
+    # Average over the batch dimension
+    loss = torch.mean(loss)
+
+    return loss
 
 def supervised_chi_loss(
     angles_sin_cos: torch.Tensor,
@@ -404,6 +463,8 @@ def compute_plddt(logits: torch.Tensor) -> torch.Tensor:
         probs * bounds.view(*((1,) * len(probs.shape[:-1])), *bounds.shape),
         dim=-1,
     )
+
+    print(f"pred_lddt_ca shape is {pred_lddt_ca.shape}")
     return pred_lddt_ca * 100
 
 
@@ -473,6 +534,7 @@ def lddt(
             dim=-1,
         )
     )
+
     dists_to_score = (
         (dmat_true < cutoff)
         * all_atom_mask
@@ -558,6 +620,66 @@ def lddt_loss(
     )
 
     errors = softmax_cross_entropy(logits, lddt_ca_one_hot)
+    all_atom_mask = all_atom_mask.squeeze(-1)
+    all_atom_mask = all_atom_mask
+
+    loss = torch.sum(errors * all_atom_mask, dim=-1) / (
+        eps + torch.sum(all_atom_mask, dim=-1)
+    )
+
+    loss = loss * (
+        (resolution >= min_resolution) & (resolution <= max_resolution)
+    )
+
+    # Average over the batch dimension
+    loss = torch.mean(loss)
+
+    return loss
+
+def lddt_all_atom_loss(
+    all_atom_logits: torch.Tensor,
+    all_atom_pred_pos: torch.Tensor,
+    all_atom_positions: torch.Tensor,
+    all_atom_mask: torch.Tensor,
+    resolution: torch.Tensor,
+    cutoff: float = 15.0,
+    no_bins: int = 50,
+    min_resolution: float = 0.1,
+    max_resolution: float = 3.0,
+    eps: float = 1e-10,
+    **kwargs,
+) -> torch.Tensor:
+    n = all_atom_mask.shape[-2]
+    # print(f"all_atom_logits shape is {all_atom_logits.shape}")
+    # print(f"all_atom_pred_pos shape is {all_atom_pred_pos.shape}")
+    # print(f"all_atom_positions shape is {all_atom_positions.shape}")
+    # print(f"all_atom_mask shape is {all_atom_mask.shape}")
+    ca_pos = residue_constants.atom_order["CA"]
+    all_atom_pred_pos = all_atom_pred_pos[..., ca_pos, :]
+    all_atom_positions = all_atom_positions[..., ca_pos, :]
+    all_atom_logits = all_atom_logits[..., ca_pos, :]
+    all_atom_mask = all_atom_mask[..., ca_pos : (ca_pos + 1)]  # keep dim
+
+    score = lddt(
+        all_atom_pred_pos, 
+        all_atom_positions, 
+        all_atom_mask, 
+        cutoff=cutoff, 
+        eps=eps
+    ) # [*, 37, N]
+
+    score = score.detach()
+
+    bin_index = torch.floor(score * no_bins).long()
+    bin_index = torch.clamp(bin_index, max=(no_bins - 1))
+
+    #using function provided by esmfold
+    # errors = CategoricalMixture(all_atom_logits, bins=no_bins).log_prob(bin_index)
+    
+    lddt_ca_one_hot = torch.nn.functional.one_hot(
+        bin_index, num_classes=no_bins
+    )
+    errors = softmax_cross_entropy(all_atom_logits, lddt_ca_one_hot)
     all_atom_mask = all_atom_mask.squeeze(-1)
     all_atom_mask = all_atom_mask
 
@@ -1731,6 +1853,107 @@ class AlphaFoldLoss(nn.Module):
             weight = self.config[loss_name].weight
 
             if weight > 0:
+                loss = loss_fn()
+                if(torch.isnan(loss) or torch.isinf(loss)):
+                    logging.warning(f"{loss_name} loss is NaN. Skipping...")
+                    loss = loss.new_tensor(0., requires_grad=True)
+                cum_loss = cum_loss + weight * loss
+                losses[loss_name] = loss.detach().clone()
+
+        losses["unscaled_loss"] = cum_loss.detach().clone()
+
+        # Scale the loss by the square root of the minimum of the crop size and
+        # the (average) sequence length. See subsection 1.9.
+        # seq_len = torch.mean(batch["seq_length"].float())
+        # crop_len = batch["aatype"].shape[-1]
+        # cum_loss = cum_loss * torch.sqrt(min(seq_len, crop_len))
+
+        losses["loss"] = cum_loss.detach().clone()
+
+        if not _return_breakdown:
+            return cum_loss
+        
+        return cum_loss, losses
+
+class ESMFoldLoss(nn.Module):
+    """Aggregation of the various losses described in the supplement"""
+    def __init__(self, config):
+        super(ESMFoldLoss, self).__init__()
+        self.config = config
+
+    def forward(self, out, batch, _return_breakdown=False):
+        if "violation" not in out.keys() and self.config.violation.weight:
+            out["violation"] = find_structural_violations(
+                batch,
+                out["positions"][-1],
+                **self.config.violation,
+            )
+
+        if "renamed_atom14_gt_positions" not in out.keys():
+            batch.update(
+                compute_renamed_ground_truth(
+                    batch,
+                    out["positions"][-1],
+                )
+            )
+
+        # fape, distogram, plddt, ptm
+        loss_fns = {
+            # distogram solved
+            "distogram": lambda: distogram_loss(
+                logits=out["distogram_logits"],
+                **{**batch, **self.config.distogram},
+            ),
+            # fape loss need 
+            # 1. out["sm"]["frames"],
+            # 2. out["sm"]["sidechain_frames"],
+            # 3. out["sm"]["positions"],
+            "fape": lambda: fape_esm_loss(
+                out,
+                batch,
+                self.config.fape,
+            ),
+            #lddt unsolved for dimension
+            # we can use 
+            # output["mean_plddt"] = (output["plddt"] * output["atom37_atom_exists"]).sum(dim=(1, 2)) / output["atom37_atom_exists"].sum(dim=(1, 2))
+            "lddt": lambda: lddt_all_atom_loss(
+                all_atom_logits=out["lddt_head"][-1], # final step in the structure module
+                all_atom_pred_pos=out["final_atom_positions"],
+                **{**batch, **self.config.lddt},
+            ),
+            ## no MLM loss
+            "seqs": lambda: seqs_loss(
+                logits=out["lm_logits"],
+                **{**batch, **self.config.seqs},
+            ),
+            ## no supervised chi loss
+            # "supervised_chi": lambda: supervised_chi_loss(
+            #     out["sm"]["angles"], # each step in the structure module
+            #     out["sm"]["unnormalized_angles"],
+            #     **{**batch, **self.config.supervised_chi},
+            # ),
+            # "experimentally_resolved": lambda: experimentally_resolved_loss(
+            #     logits=out["experimentally_resolved_logits"],
+            #     **{**batch, **self.config.experimentally_resolved},
+            # ),
+            # "violation": lambda: violation_loss(
+            #     out["violation"],
+            #     **batch,
+            # ),
+        }
+
+        if self.config.tm.enabled:
+            loss_fns["tm"] = lambda: tm_loss(
+                logits=out["ptm_logits"],
+                **{**batch, **out, **self.config.tm},
+            )
+
+        cum_loss = 0.
+        losses = {}
+        for loss_name, loss_fn in loss_fns.items():
+            weight = self.config[loss_name].weight
+
+            if weight >= 0:
                 loss = loss_fn()
                 if(torch.isnan(loss) or torch.isinf(loss)):
                     logging.warning(f"{loss_name} loss is NaN. Skipping...")
