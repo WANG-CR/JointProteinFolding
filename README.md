@@ -10,6 +10,9 @@ We provide scripts for mist cluster. Run:
 
 ```bash
 bash scripts/install_third_party_dependencies.sh
+
+# alternatively, you can install in another way with script:
+bash scripts/install_third_party_dependencies_concret.sh
 ```
 
 To activate the environment, run:

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-ENV_NAME=cath_gen
+ENV_NAME=pf3
 # You may need to run the following two lines first.
 # module load gcc
 # module load cuda/11.2
@@ -10,8 +10,13 @@ conda update -qy conda
 conda create -p ~/scratch/envs/$ENV_NAME -y python==3.7
 source activate ~/scratch/envs/$ENV_NAME
 
+# using cudatoolkit 11.2 because the system load module cuda/11.2
 conda install -y -c https://ftp.osuosl.org/pub/open-ce/1.5.1/ pytorch=1.10.1 cudatoolkit=11.2
 conda install -y -c conda-forge easydict ipython scikit-learn
+conda install -y -c pyg pyg
+# if pyg not compatible, please use
+# pip install pyg-lib torch-scatter torch-sparse -f https://data.pyg.org/whl/torch-1.10.1+cu112.html
+# pip install torch-geometric
 conda install -y llvmdev=10.0.0 matplotlib
 pip install cmake
 pip install biopython==1.79 deepspeed==0.5.3 ml-collections==0.1.0 PyYAML==5.4.1 requests==2.26.0 \

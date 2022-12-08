@@ -4,7 +4,7 @@ ENV_NAME=pf3
 
 # Grab conda-only packages
 conda update -qy conda
-conda env create --name=$ENV_NAME -f scripts_cath/environment.yml
+conda env create --name=$ENV_NAME -f scripts/environment.yml
 source activate $ENV_NAME
 
 # Install DeepMind's OpenMM patch
