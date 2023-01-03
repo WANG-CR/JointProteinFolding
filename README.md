@@ -13,12 +13,16 @@ bash scripts/install_third_party_dependencies.sh
 
 # alternatively, you can install in another way with script:
 bash scripts/install_third_party_dependencies_concret.sh
+
+# in case of cpu environment, please use:
+bash scripts/install_third_party_dependencies_cpu.sh
 ```
+
 
 To activate the environment, run:
 
 ```bash
-source activate pf3    
+source activate <env name>    
 ```
 
 
