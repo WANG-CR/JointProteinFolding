@@ -378,6 +378,10 @@ if __name__ == "__main__":
         "--seed", type=int, default=None,
         help="Random seed"
     )
+   # parser.add_argument(
+   #     "--num_nodes", type=int, default=2,
+   #     help="Random seed"
+   # )
     parser.add_argument(
         "--deepspeed_config_path", type=str, default=None,
         help="Path to DeepSpeed config. If not provided, DeepSpeed is disabled"
@@ -459,6 +463,7 @@ if __name__ == "__main__":
             "of the yaml_config_preset."
         )
     )
+
     parser = pl.Trainer.add_argparse_args(parser)
    
     # Disable the initial validation pass
@@ -470,12 +475,33 @@ if __name__ == "__main__":
     remove_arguments(
         parser, 
         [
+            "--devices", 
+            "--num_nodes", 
             "--accelerator", 
             "--resume_from_checkpoint",
             "--reload_dataloaders_every_epoch",
             "--reload_dataloaders_every_n_epochs",
         ]
     ) 
+
+    parser.add_argument(
+        "--accelerator", type=str, default=None,
+        help=(
+            "specify the devices among 'cpu', 'gpu', 'auto'"
+        )
+    )
+    parser.add_argument(
+        "--devices", type=int, default=None,
+        help=(
+            "(number of threads) * (number of nodes)"
+        )
+    )
+    parser.add_argument(
+        "--num_nodes", type=int, default=1,
+        help=(
+            "number of nodes"
+        )
+    )
 
     args = parser.parse_args()
 
