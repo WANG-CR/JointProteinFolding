@@ -1,8 +1,8 @@
 model:
   evoformer_stack:
-    no_blocks: 8
+    no_blocks: 48
   structure_module:
-    no_blocks: 8
+    no_blocks: 48
   inverse_evoformer_stack:
     no_blocks: 16
     

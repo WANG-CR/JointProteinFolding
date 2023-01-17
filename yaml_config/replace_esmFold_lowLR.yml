@@ -1,8 +1,8 @@
 model:
   evoformer_stack:
-    no_blocks: 1
+    no_blocks: 8
   structure_module:
-    no_blocks: 1
+    no_blocks: 8
   inverse_evoformer_stack:
     no_blocks: 16
     
@@ -24,7 +24,7 @@ data:
       num_workers: 10
 
 optimizer:
-  lr: 0.0001
+  lr: 0.0005
 
 scheduler:
   warmup_no_steps: 5000

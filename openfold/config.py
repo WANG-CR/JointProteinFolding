@@ -88,6 +88,7 @@ c_m = mlc.FieldReference(1024, field_type=int)
 c_m_structure = mlc.FieldReference(384, field_type=int)
 c_z_structure = mlc.FieldReference(128, field_type=int)
 
+lm_name = mlc.FieldReference("esm2_t33_650M_UR50D", field_type=str)
 blocks_per_ckpt = mlc.FieldReference(None, field_type=int)
 chunk_size = mlc.FieldReference(4, field_type=int)
 aux_distogram_bins = mlc.FieldReference(64, field_type=int)

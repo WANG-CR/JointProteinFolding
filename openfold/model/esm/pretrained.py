@@ -15,7 +15,7 @@ def _load_model(model_name):
 
     cfg = model_data["cfg"]["model"]
     model_state = model_data["model"]
-    model = ESMFold(esmfold_config=cfg)
+    model = ESMFold(esmfold_config=cfg, using_fair=True)
 
     expected_keys = set(model.state_dict().keys())
     found_keys = set(model_state.keys())

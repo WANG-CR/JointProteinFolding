@@ -547,7 +547,7 @@ class StructureModuleTransition(nn.Module):
 class StructureModule(nn.Module):
     def __init__(
         self,
-        c_m,
+        c_s,
         c_z,
         c_ipa,
         c_resnet,
@@ -600,7 +600,7 @@ class StructureModule(nn.Module):
         """
         super(StructureModule, self).__init__()
 
-        self.c_s = c_m
+        self.c_s = c_s
         self.c_z = c_z
         self.c_ipa = c_ipa
         self.c_resnet = c_resnet
@@ -657,18 +657,18 @@ class StructureModule(nn.Module):
             self.epsilon,
         )
 
-        self.seq_emb_nn = nn.Sequential(
-            Linear(restype_num + 1, self.c_s, init="relu"),
-            nn.ReLU(),
-            Linear(self.c_s, self.c_s, init="final"),
-        )
+        # self.seq_emb_nn = nn.Sequential(
+        #     Linear(restype_num + 1, self.c_s, init="relu"),
+        #     nn.ReLU(),
+        #     Linear(self.c_s, self.c_s, init="final"),
+        # )
 
-        self.seq_resnet = SeqResnet(
-            self.c_s,
-            self.c_resnet,
-            self.no_resnet_blocks,
-            restype_num + 1,
-        )
+        # self.seq_resnet = SeqResnet(
+        #     self.c_s,
+        #     self.c_resnet,
+        #     self.no_resnet_blocks,
+        #     restype_num + 1,
+        # )
 
     def forward(
         self,
@@ -679,6 +679,7 @@ class StructureModule(nn.Module):
         initial_rigids=None,
         initial_seqs=None,
         gt_angles=None,
+        track_seq_states=False,
     ):
         """
         Args:
@@ -735,10 +736,11 @@ class StructureModule(nn.Module):
         outputs = []
         for i in range(self.no_blocks):
             # [*, N, C_s]
-            seqs_emb = self.seq_emb_nn(seqs)
-            # only updating the unknown part
-            check_inf_nan(seqs_emb)
-            s = s + seqs_emb
+            if track_seq_states:
+                seqs_emb = self.seq_emb_nn(seqs)
+                # only updating the unknown part
+                check_inf_nan(seqs_emb)
+                s = s + seqs_emb
             
             s = s + self.ipa(s, z, rigids, mask)
             check_inf_nan(s)
@@ -774,22 +776,28 @@ class StructureModule(nn.Module):
             unnormalized_angles, angles = self.angle_resnet(s, s_initial)
 
             # [*, N, 21]
-            seqs_logits = self.seq_resnet(s, s_initial, seqs_emb)
-            seqs = F.softmax(seqs_logits, dim=-1)
+            if track_seq_states:
+                seqs_logits = self.seq_resnet(s, s_initial, seqs_emb)  
+                seqs = F.softmax(seqs_logits, dim=-1)
+                aatype_dist = seqs
+
             # check_inf_nan([seqs_logits, seqs])
             scaled_rigids = rigids.scale_translation(self.trans_scale_factor)
 
-            aatype_dist = seqs
+            
             if not self.training or i == (self.no_blocks - 1):
                 if not self.training:
-                    # [*, N]
-                    # print(f"inference loop aatype ...")
-                    masked_seqs_logits = seqs_logits.clone()
-                    masked_seqs_logits[..., -1] = -9999 # zero out UNK.
-                    masked_seqs_logits = F.softmax(masked_seqs_logits, dim=-1)
-                    aatype_dist = masked_seqs_logits
-                    aatype_ = torch.argmax(aatype_dist, dim=-1)
-                    # aatype_ = torch.argmax(masked_seqs_logits, dim=-1)
+                    # if track_seq_states:
+                        # [*, N]
+                        # print(f"inference loop aatype ...")
+                    # masked_seqs_logits = seqs_logits.clone()
+                    # masked_seqs_logits[..., -1] = -9999 # zero out UNK.
+                    # masked_seqs_logits = F.softmax(masked_seqs_logits, dim=-1)
+                    # aatype_dist = masked_seqs_logits
+                    # aatype_ = torch.argmax(aatype_dist, dim=-1)
+                    #     # aatype_ = torch.argmax(masked_seqs_logits, dim=-1)
+
+                    aatype_ = aatype
                 else:
                     aatype_ = aatype
 
@@ -824,21 +832,33 @@ class StructureModule(nn.Module):
             
             if i < (self.no_blocks - 1):
                 rigids = rigids.stop_rot_gradient()
-                seqs = seqs.detach()
+                if track_seq_states:
+                    seqs = seqs.detach()
 
-            preds = {
-                "frames": scaled_rigids.to_tensor_7(), # [*, N, 7]
-                "unnormalized_angles": unnormalized_angles, # [*, N, 7, 2]
-                "angles": angles, # [*, N, 7, 2]
-                "singles": s, # [*, N, C_s]
-                "sidechain_frames": all_frames_to_global, # [*, N, 8, 4, 4]
-                "positions": pred_xyz, # [*, N, 14, 3]
-                "seqs_logits": seqs_logits, # [*, N, 21]
-                "seqs": seqs, # [*, N, 21]
-                "aatype_": aatype_, # [*, N]
-                "aatype_dist": aatype_dist,
-            }
+            if track_seq_states:
+                preds = {
+                    "frames": scaled_rigids.to_tensor_7(), # [*, N, 7]
+                    "unnormalized_angles": unnormalized_angles, # [*, N, 7, 2]
+                    "angles": angles, # [*, N, 7, 2]
+                    "singles": s, # [*, N, C_s]
+                    "sidechain_frames": all_frames_to_global, # [*, N, 8, 4, 4]
+                    "positions": pred_xyz, # [*, N, 14, 3]
+                    "seqs_logits": seqs_logits, # [*, N, 21]
+                    "seqs": seqs, # [*, N, 21]
+                    "aatype_": aatype_, # [*, N]
+                    "aatype_dist": aatype_dist,
+                }
 
+            else:
+                preds = {
+                    "frames": scaled_rigids.to_tensor_7(), # [*, N, 7]
+                    "unnormalized_angles": unnormalized_angles, # [*, N, 7, 2]
+                    "angles": angles, # [*, N, 7, 2]
+                    "singles": s, # [*, N, C_s]
+                    "sidechain_frames": all_frames_to_global, # [*, N, 8, 4, 4]
+                    "positions": pred_xyz, # [*, N, 14, 3]
+                    "aatype_": aatype_, # [*, N]
+                }
             outputs.append(preds)
 
 

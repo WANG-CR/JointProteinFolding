@@ -1,9 +1,11 @@
 model:
   evoformer_stack:
     no_blocks: 32
+    c_s: 1024
   structure_module:
     no_blocks: 32
-    c_s: 1024
+    c_m: 384
+    c_z: 128
   input_embedder:
     c_m: 1024
   residue_emb:

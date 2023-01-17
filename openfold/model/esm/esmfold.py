@@ -38,7 +38,8 @@ class ESMFoldConfig:
 def constructConfigFromYAML(config):
     assert config.model.structure_module.no_blocks == config.model.evoformer_stack.no_blocks
     structure_module = StructureModuleConfig(
-        c_m = config.globals.c_m_structure,
+        # c_m = config.globals.c_m_structure,
+        c_s = config.globals.c_m_structure,
         c_z = config.globals.c_z_structure,
     )
     trunk = FoldingTrunkConfig(
@@ -51,21 +52,28 @@ def constructConfigFromYAML(config):
         dropout = config.model.evoformer_stack.seq_dropout,
         structure_module = structure_module,
         )
+    lm = config.globals.lm_name
     print(trunk)
-    return ESMFoldConfig(trunk = trunk)
+    return ESMFoldConfig(trunk = trunk, lm=lm)
 
 class ESMFold(nn.Module):
-    def __init__(self, esmfold_config=None, **kwargs):
+    def __init__(self, esmfold_config=None, using_fair=False, track_seq_states=False, **kwargs):
         super().__init__()
 
         self.cfg = esmfold_config if esmfold_config else ESMFoldConfig(**kwargs)
         cfg = self.cfg
-
+        self.using_fair = using_fair
+        self.track_seq_states = track_seq_states
         self.distogram_bins = 64
-
-        # self.esm, self.esm_dict = esm.pretrained.esm2_t36_3B_UR50D()
-        # self.esm, self.esm_dict = torch.hub.load("facebookresearch/esm:main", "esm2_t36_3B_UR50D")
-        self.esm, self.esm_dict = torch.hub.load("facebookresearch/esm:main", cfg.lm)
+        print(f"using fair 1")
+        if using_fair:
+            self.esm, self.esm_dict = torch.hub.load("facebookresearch/esm:main", "esm2_t36_3B_UR50D")
+            # self.esm, self.esm_dict = torch.hub.load("facebookresearch/esm:main", "esm2_t33_650M_UR50D")
+            print(f"using fair 2")
+        else:
+            self.esm, self.esm_dict = torch.hub.load("facebookresearch/esm:main", cfg.lm)
+            logging.info(f"using Language model: {cfg.lm}")
+        
         # require_grad = False
         self.esm.requires_grad_(False)
         self.esm.half()
@@ -77,7 +85,12 @@ class ESMFold(nn.Module):
 
         c_s = cfg.trunk.sequence_state_dim
         c_z = cfg.trunk.pairwise_state_dim
-        c_s_sturcture = cfg.trunk.structure_module.c_m
+        
+        if using_fair:
+            c_s_sturcture = cfg.trunk.structure_module.c_s
+        else:
+            # c_s_sturcture = cfg.trunk.structure_module.c_m
+            c_s_sturcture = cfg.trunk.structure_module.c_s
 
         self.esm_s_mlp = nn.Sequential(
             LayerNorm(self.esm_feats),
@@ -93,13 +106,19 @@ class ESMFold(nn.Module):
         self.mask_idx = self.n_tokens_embed - 1
         self.embedding = nn.Embedding(self.n_tokens_embed, c_s, padding_idx=0)
 
-        # self.trunk = FoldingTrunk(**cfg.trunk)
-        self.trunk = FoldingTrunk(**asdict(cfg.trunk))
+        if (isinstance(self.cfg.trunk, dict)):
+            self.trunk = FoldingTrunk(**cfg.trunk)
+        else:
+            self.trunk = FoldingTrunk(**asdict(cfg.trunk))
 
         self.distogram_head = nn.Linear(c_z, self.distogram_bins)
         self.ptm_head = nn.Linear(c_z, self.distogram_bins)
-        # self.lm_head = nn.Linear(c_s, self.n_tokens_embed)
-        self.lm_head = nn.Linear(c_s, self.n_tokens_embed-2)
+        
+        if using_fair:
+            self.lm_head = nn.Linear(c_s, self.n_tokens_embed)
+        else:
+            self.lm_head = nn.Linear(c_s, self.n_tokens_embed-2)
+
         self.lddt_bins = 50
         self.lddt_head = nn.Sequential(
             nn.LayerNorm(c_s_sturcture),
@@ -253,10 +272,172 @@ class ESMFold(nn.Module):
 
         ############# No.3 lm loss
         lm_logits = self.lm_head(structure["s_s"])
-        seqResNet_logits = structure["seqs_logits"]
+        if self.using_fair:
+            seqResNet_logits = structure["seqs_logits"]
         # print(f"lm_logits shape is : {lm_logits.shape}")
         # print(f"seqResNet_logits shape is : {seqResNet_logits.shape}")
-        structure["lm_logits"] = (lm_logits + seqResNet_logits)[-1]
+            structure["lm_logits"] = (lm_logits + seqResNet_logits)[-1]
+        else:
+            structure["lm_logits"] = lm_logits[-1]
+
+        ############# No.4 plddt loss
+        # need final_atom_positions
+        structure["aatype"] = aa
+        make_atom14_masks(structure)
+        for k in [
+            "atom14_atom_exists",
+            "atom37_atom_exists",
+        ]:
+            structure[k] *= mask.unsqueeze(-1)
+        structure["residue_index"] = residx 
+        structure["final_atom_positions"] = atom14_to_atom37(structure["positions"][-1], structure)
+        # for k, v in structure.items():
+        #     print(f"structure contains key: {k}")
+        lddt_head = self.lddt_head(structure["singles"]).reshape(
+            structure["singles"].shape[0], B, L, -1, self.lddt_bins
+        )
+        # print(f"lddt_head shape is {lddt_head.shape}")
+        # print(f"lddt_head last dimension shape is {lddt_head[-1].shape}")
+        structure["lddt_head"] = lddt_head
+        plddt = categorical_lddt(lddt_head[-1], bins=self.lddt_bins)
+        structure["plddt"] = (
+            100 * plddt
+        )  # we predict plDDT between 0 and 1, scale to be between 0 and 100.
+        structure["mean_plddt"] = (structure["plddt"] * structure["atom37_atom_exists"]).sum(
+            dim=(1, 2)
+        ) / structure["atom37_atom_exists"].sum(dim=(1, 2))
+        # shape is [..., 37]
+        # print(f"plddt shape is {plddt.shape}")
+        ca_pos = residue_constants.atom_order["CA"]
+        structure["lddt_logits"] = (100 * plddt[..., : , ca_pos])
+        # print(f"lddt logits shape is {structure['lddt_logits'].shape}")
+        # print(f"lddt logits content is {structure['lddt_logits']}")
+        ############# No.4 ptm loss
+        ptm_logits = self.ptm_head(structure["s_z"])
+        # shape (batch_size, seq_len, seq_len, self.distogram_bins)
+
+        seqlen = mask.type(torch.int64).sum(1)
+        structure["ptm_logits"] = ptm_logits
+        structure["final_affine_tensor"] = structure["frames"][-1]
+        structure["ptm"] = torch.stack(
+            [
+                compute_tm(
+                    batch_ptm_logits[None, :sl, :sl], max_bins=31, no_bins=self.distogram_bins
+                )
+                for batch_ptm_logits, sl in zip(ptm_logits, seqlen)
+            ]
+        )
+        # print(f"ptm shape is {structure['ptm'].shape}")
+        structure.update(
+            compute_predicted_aligned_error(ptm_logits, max_bin=31, no_bins=self.distogram_bins)
+        )
+
+        return structure
+
+    def forward4infer(
+        self,
+        aatype,
+        mask,
+        residx=None,
+        masking_pattern=None,
+        num_recycles=None,
+    ):
+        """Runs a forward pass given input tokens. Use `model.infer` to
+        run inference from a sequence.
+
+        Args:
+            aa (torch.Tensor): Tensor containing indices corresponding to amino acids. Indices match
+                openfold.np.residue_constants.restype_order_with_x.
+            mask (torch.Tensor): Binary tensor with 1 meaning position is unmasked and 0 meaning position is masked.
+            residx (torch.Tensor): Residue indices of amino acids. Will assume contiguous if not provided.
+            masking_pattern (torch.Tensor): Optional masking to pass to the input. Binary tensor of the same size
+                as `aa`. Positions with 1 will be masked. ESMFold sometimes produces different samples when
+                different masks are provided.
+            num_recycles (int): How many recycle iterations to perform. If None, defaults to training max
+                recycles, which is 3.
+        """
+        ## how to input
+        aa = aatype
+
+        # the no_recycle is sampled from a uniform distribution
+        # print(f"aatype shape is { batch['aatype'].shape}")
+        # print(f"aa is {aa}")
+        # print(f"mask is {mask}")
+        # print(f"residx is {residx}")
+
+        if mask is None:
+            mask = torch.ones_like(aa)
+
+        B = aa.shape[0]
+        L = aa.shape[1]
+        device = aa.device
+
+        if residx is None:
+            residx = torch.arange(L, device=device).expand_as(aa)
+
+        # === ESM ===
+        esmaa = self._af2_idx_to_esm_idx(aa, mask)
+
+        if masking_pattern is not None:
+            esmaa = self._mask_inputs_to_esm(esmaa, masking_pattern)
+
+        esm_s = self._compute_language_model_representations(esmaa)
+
+        # Convert esm_s to the precision used by the trunk and
+        # the structure module. These tensors may be a lower precision if, for example,
+        # we're running the language model in fp16 precision.
+        esm_s = esm_s.to(self.esm_s_combine.dtype)
+
+        esm_s = esm_s.detach()
+
+        # === preprocessing ===
+        esm_s = (self.esm_s_combine.softmax(0).unsqueeze(0) @ esm_s).squeeze(2)
+
+        s_s_0 = self.esm_s_mlp(esm_s)
+        s_z_0 = s_s_0.new_zeros(B, L, L, self.cfg.trunk.pairwise_state_dim)
+
+        s_s_0 += self.embedding(aa)
+
+        structure: dict = self.trunk(s_s_0, s_z_0, aa, residx, mask, no_recycles=num_recycles, track_seq_states = self.track_seq_states)
+        # Documenting what we expect:
+        structure = {
+            k: v
+            for k, v in structure.items()
+            if k
+            in [
+                "s_z",
+                "s_s",
+                "frames",
+                "sidechain_frames",
+                "unnormalized_angles",
+                "angles",
+                "positions",
+                "frames",
+                "sidechain_frames",
+                # "states",
+                "seqs_logits",
+                "singles",
+            ]
+        }
+        # question: we need to change s_z, s_s keys
+        
+        ############# No.1 fape loss
+
+        ############# No.2 distogram loss
+        ## question: do they need only taking last dimension of structure? [-1]
+        disto_logits = self.distogram_head(structure["s_z"])
+        disto_logits = (disto_logits + disto_logits.transpose(1, 2)) / 2
+        structure["distogram_logits"] = disto_logits
+
+        ############# No.3 lm loss
+        lm_logits = self.lm_head(structure["s_s"])
+        if self.track_seq_states:
+            seqResNet_logits = structure["seqs_logits"]
+        # print(f"lm_logits shape is : {lm_logits.shape}")
+        # print(f"seqResNet_logits shape is : {seqResNet_logits.shape}")
+            structure["lm_logits"] = (lm_logits + seqResNet_logits)[-1]
+        else:
+            structure["lm_logits"] = lm_logits[-1]
 
         ############# No.4 plddt loss
         # need final_atom_positions
@@ -321,6 +502,7 @@ class ESMFold(nn.Module):
         num_recycles: T.Optional[int] = None,
         residue_index_offset: T.Optional[int] = 512,
         chain_linker: T.Optional[str] = "G" * 25,
+        cpu_only=False,
     ):
         """Runs a forward pass given input sequences.
 
@@ -338,6 +520,9 @@ class ESMFold(nn.Module):
             chain_linker (str): Linker to use between chains if predicting a multimer. Has no effect on single chain
                 predictions. Default: length-25 poly-G ("G" * 25).
         """
+        if cpu_only:
+            self.esm.float()
+        
         if isinstance(sequences, str):
             sequences = [sequences]
 
@@ -354,7 +539,7 @@ class ESMFold(nn.Module):
             lambda x: x.to(self.device), (aatype, mask, residx, linker_mask)
         )
 
-        output = self.forward(
+        output = self.forward4infer(
             aatype,
             mask=mask,
             residx=residx,
