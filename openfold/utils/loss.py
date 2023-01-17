@@ -464,7 +464,7 @@ def compute_plddt(logits: torch.Tensor) -> torch.Tensor:
         dim=-1,
     )
 
-    print(f"pred_lddt_ca shape is {pred_lddt_ca.shape}")
+    # print(f"pred_lddt_ca shape is {pred_lddt_ca.shape}")
     return pred_lddt_ca * 100
 
 
