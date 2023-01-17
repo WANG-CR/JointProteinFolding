@@ -464,7 +464,7 @@ def compute_plddt(logits: torch.Tensor) -> torch.Tensor:
         dim=-1,
     )
 
-    # print(f"pred_lddt_ca shape is {pred_lddt_ca.shape}")
+    print(f"pred_lddt_ca shape is {pred_lddt_ca.shape}")
     return pred_lddt_ca * 100
 
 
@@ -871,6 +871,7 @@ def tm_loss(
         (_points(pred_affine) - _points(backbone_rigid)) ** 2, dim=-1
     )
 
+
     sq_diff = sq_diff.detach()
 
     boundaries = torch.linspace(
@@ -882,25 +883,28 @@ def tm_loss(
     errors = softmax_cross_entropy(
         logits, torch.nn.functional.one_hot(true_bins, no_bins)
     )
-
+    # logging.warning(f"errors value is {errors}")
     square_mask = (
         backbone_rigid_mask[..., None] * backbone_rigid_mask[..., None, :]
     )
 
     loss = torch.sum(errors * square_mask, dim=-1)
+    
+
     scale = 0.5  # hack to help FP16 training along
     denom = eps + torch.sum(scale * square_mask, dim=(-1, -2))
     loss = loss / denom[..., None]
     loss = torch.sum(loss, dim=-1)
     loss = loss * scale
-
-    loss = loss * (
-        (resolution >= min_resolution) & (resolution <= max_resolution)
-    )
+    # logging.warning(f"tm-loss value is {loss}")
+    # logging.warning(f"resolution value is {resolution}")
+    # loss = loss * (
+    #     (resolution >= min_resolution) & (resolution <= max_resolution)
+    # )
 
     # Average over the loss dimension
     loss = torch.mean(loss)
-
+    # logging.warning(f"tm-loss value is {loss}")
     return loss
 
 
@@ -1926,6 +1930,10 @@ class ESMFoldLoss(nn.Module):
                 logits=out["lm_logits"],
                 **{**batch, **self.config.seqs},
             ),
+            "tm": lambda: tm_loss(
+                logits=out["ptm_logits"],
+                **{**batch, **out, **self.config.tm},
+            )
             ## no supervised chi loss
             # "supervised_chi": lambda: supervised_chi_loss(
             #     out["sm"]["angles"], # each step in the structure module
@@ -1942,16 +1950,18 @@ class ESMFoldLoss(nn.Module):
             # ),
         }
 
-        if self.config.tm.enabled:
-            loss_fns["tm"] = lambda: tm_loss(
-                logits=out["ptm_logits"],
-                **{**batch, **out, **self.config.tm},
-            )
+        # if self.config.tm.enabled:
+        #     loss_fns["tm"] = lambda: tm_loss(
+        #         logits=out["ptm_logits"],
+        #         **{**batch, **out, **self.config.tm},
+        #     )
 
         cum_loss = 0.
         losses = {}
         for loss_name, loss_fn in loss_fns.items():
+            
             weight = self.config[loss_name].weight
+            # logging.warning(f"{loss_name} has weight {weight}")
 
             if weight >= 0:
                 loss = loss_fn()
