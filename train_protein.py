@@ -249,7 +249,7 @@ def main(args):
             mode="min",
             every_n_epochs=1,
             save_last=False,
-            save_top_k=10,
+            save_top_k=5,
         )
         callbacks.append(mc)
 
@@ -295,7 +295,7 @@ def main(args):
             wdb_logger.experiment.save("openfold/config.py")
             if args.yaml_config_preset is not None:
                 wdb_logger.experiment.save(args.yaml_config_preset)
-    elif (args.gpus is not None and args.gpus > 1) or args.num_nodes > 1:
+    elif (args.gpus is not None and args.gpus > 1) or (args.devices is not None and args.devices >1) or args.num_nodes > 1:
         strategy = DDPPlugin(find_unused_parameters=False)
     else:
         strategy = None
@@ -493,7 +493,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--devices", type=int, default=None,
         help=(
-            "(number of threads) * (number of nodes)"
+            "number of process per node"
         )
     )
     parser.add_argument(
