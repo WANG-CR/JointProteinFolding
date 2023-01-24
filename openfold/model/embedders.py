@@ -22,6 +22,7 @@ class InputEmbedder(nn.Module):
         c_z: int,
         c_m: int,
         relpos_k: int,
+        lm_name: str,
         residue_emb_cfg: mlc.ConfigDict,
         residue_attn_cfg: mlc.ConfigDict,
         **kwargs,
@@ -44,14 +45,17 @@ class InputEmbedder(nn.Module):
         self.tf_dim = tf_dim
         self.c_z = c_z
         self.c_m = c_m
-
+        self.lm_name = lm_name
         # RPE stuff
         self.relpos_k = relpos_k
         self.no_bins = 2 * relpos_k + 1
         self.linear_relpos = Linear(self.no_bins, c_z)
 
-        self.esm_model, self.esm_dict = torch.hub.load("facebookresearch/esm:main", "esm2_t33_650M_UR50D")
-        emb_input_dim = 1280
+        # self.esm_model, self.esm_dict = torch.hub.load("facebookresearch/esm:main", "esm2_t33_650M_UR50D")
+        self.esm_model, self.esm_dict = torch.hub.load("facebookresearch/esm:main", self.lm_name)
+        emb_input_dim = self.esm_model.embed_dim
+        print(f">> we use {self.lm_name} language model")
+        # emb_input_dim = 1280
         # self.esm_model, self.esm_dict = torch.hub.load("facebookresearch/esm:main", "esm2_t36_3B_UR50D")
         # emb_input_dim = 2560
         self.esm_model.requires_grad_(False)
@@ -392,6 +396,7 @@ class RecyclingEmbedder(nn.Module):
         max_bin: float,
         no_bins: int,
         inf: float = 1e8,
+        track_seq_states: bool=False,
         **kwargs,
     ):
         """
@@ -415,14 +420,16 @@ class RecyclingEmbedder(nn.Module):
         self.max_bin = max_bin
         self.no_bins = no_bins
         self.inf = inf
+        self.track_seq_states = track_seq_states
 
         self.linear = Linear(self.no_bins, self.c_z)
         self.layer_norm_m = LayerNorm(self.c_m)
         self.layer_norm_z = LayerNorm(self.c_z)
 
-        # seqs_prev
-        self.linear_seqs = Linear(21, self.c_m)
-        self.layer_norm_seqs = LayerNorm(self.c_m)
+        # disabling final aatype distribution and seqs_prev during baseline test
+        if self.track_seq_states:
+            self.linear_seqs = Linear(21, self.c_m)
+            self.layer_norm_seqs = LayerNorm(self.c_m)
 
     def forward(
         self,
@@ -455,7 +462,11 @@ class RecyclingEmbedder(nn.Module):
         )
 
         # [*, N, C_m]
-        m_update = self.layer_norm_m(m) + self.layer_norm_seqs(self.linear_seqs(seqs))
+        # disabling final aatype distribution and seqs_prev during baseline test
+        if self.track_seq_states:
+            m_update = self.layer_norm_m(m) + self.layer_norm_seqs(self.linear_seqs(seqs))
+        else:
+            m_update = self.layer_norm_m(m)
 
         # This squared method might become problematic in FP16 mode.
         # I'm using it because my homegrown method had a stubborn discrepancy I

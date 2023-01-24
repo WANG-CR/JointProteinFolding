@@ -547,7 +547,7 @@ class StructureModuleTransition(nn.Module):
 class StructureModule(nn.Module):
     def __init__(
         self,
-        c_s,
+        c_m,
         c_z,
         c_ipa,
         c_resnet,
@@ -562,6 +562,7 @@ class StructureModule(nn.Module):
         trans_scale_factor,
         epsilon,
         inf,
+        track_seq_states,
         **kwargs,
     ):
         """
@@ -600,7 +601,7 @@ class StructureModule(nn.Module):
         """
         super(StructureModule, self).__init__()
 
-        self.c_s = c_s
+        self.c_s = c_m
         self.c_z = c_z
         self.c_ipa = c_ipa
         self.c_resnet = c_resnet
@@ -615,6 +616,7 @@ class StructureModule(nn.Module):
         self.trans_scale_factor = trans_scale_factor
         self.epsilon = epsilon
         self.inf = inf
+        self.track_seq_states = track_seq_states
 
         # To be lazily initialized later
         self.default_frames = None
@@ -657,18 +659,20 @@ class StructureModule(nn.Module):
             self.epsilon,
         )
 
-        # self.seq_emb_nn = nn.Sequential(
-        #     Linear(restype_num + 1, self.c_s, init="relu"),
-        #     nn.ReLU(),
-        #     Linear(self.c_s, self.c_s, init="final"),
-        # )
+        # disabling final aatype distribution during baseline test
+        if self.track_seq_states:
+            self.seq_emb_nn = nn.Sequential(
+                Linear(restype_num + 1, self.c_s, init="relu"),
+                nn.ReLU(),
+                Linear(self.c_s, self.c_s, init="final"),
+            )
 
-        # self.seq_resnet = SeqResnet(
-        #     self.c_s,
-        #     self.c_resnet,
-        #     self.no_resnet_blocks,
-        #     restype_num + 1,
-        # )
+            self.seq_resnet = SeqResnet(
+                self.c_s,
+                self.c_resnet,
+                self.no_resnet_blocks,
+                restype_num + 1,
+            )
 
     def forward(
         self,
@@ -679,7 +683,6 @@ class StructureModule(nn.Module):
         initial_rigids=None,
         initial_seqs=None,
         gt_angles=None,
-        track_seq_states=False,
     ):
         """
         Args:
@@ -694,6 +697,10 @@ class StructureModule(nn.Module):
         Returns:
             A dictionary of outputs
         """
+
+        # disabling final aatype distribution during baseline test
+
+        
         if mask is None:
             # [*, N]
             mask = s.new_ones(s.shape[:-1])
@@ -736,7 +743,7 @@ class StructureModule(nn.Module):
         outputs = []
         for i in range(self.no_blocks):
             # [*, N, C_s]
-            if track_seq_states:
+            if self.track_seq_states:
                 seqs_emb = self.seq_emb_nn(seqs)
                 # only updating the unknown part
                 check_inf_nan(seqs_emb)
@@ -776,7 +783,7 @@ class StructureModule(nn.Module):
             unnormalized_angles, angles = self.angle_resnet(s, s_initial)
 
             # [*, N, 21]
-            if track_seq_states:
+            if self.track_seq_states:
                 seqs_logits = self.seq_resnet(s, s_initial, seqs_emb)  
                 seqs = F.softmax(seqs_logits, dim=-1)
                 aatype_dist = seqs
@@ -832,10 +839,10 @@ class StructureModule(nn.Module):
             
             if i < (self.no_blocks - 1):
                 rigids = rigids.stop_rot_gradient()
-                if track_seq_states:
+                if self.track_seq_states:
                     seqs = seqs.detach()
 
-            if track_seq_states:
+            if self.track_seq_states:
                 preds = {
                     "frames": scaled_rigids.to_tensor_7(), # [*, N, 7]
                     "unnormalized_angles": unnormalized_angles, # [*, N, 7, 2]

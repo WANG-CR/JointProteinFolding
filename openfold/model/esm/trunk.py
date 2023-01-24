@@ -15,8 +15,8 @@ from openfold.model.esm.tri_self_attn_block import TriangularSelfAttentionBlock
 
 @dataclass
 class StructureModuleConfig:
-    # c_m: int = 384
-    c_s: int = 384
+    c_m: int = 384
+    # c_s: int = 384
     c_z: int = 128
     c_ipa: int = 16
     c_resnet: int = 128

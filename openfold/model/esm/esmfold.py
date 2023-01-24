@@ -38,8 +38,8 @@ class ESMFoldConfig:
 def constructConfigFromYAML(config):
     assert config.model.structure_module.no_blocks == config.model.evoformer_stack.no_blocks
     structure_module = StructureModuleConfig(
-        # c_m = config.globals.c_m_structure,
-        c_s = config.globals.c_m_structure,
+        c_m = config.globals.c_m_structure,
+        # c_s = config.globals.c_m_structure,
         c_z = config.globals.c_z_structure,
     )
     trunk = FoldingTrunkConfig(
@@ -87,10 +87,10 @@ class ESMFold(nn.Module):
         c_z = cfg.trunk.pairwise_state_dim
         
         if using_fair:
-            c_s_sturcture = cfg.trunk.structure_module.c_s
+            c_s_sturcture = cfg.trunk.structure_module.c_m
         else:
-            # c_s_sturcture = cfg.trunk.structure_module.c_m
-            c_s_sturcture = cfg.trunk.structure_module.c_s
+            c_s_sturcture = cfg.trunk.structure_module.c_m
+            # c_s_sturcture = cfg.trunk.structure_module.c_s
 
         self.esm_s_mlp = nn.Sequential(
             LayerNorm(self.esm_feats),

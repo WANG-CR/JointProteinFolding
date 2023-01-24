@@ -353,13 +353,15 @@ class AlphaFold(nn.Module):
             outputs["final_atom_mask"] = feats["atom37_atom_exists"]
         outputs["final_affine_tensor"] = outputs["sm"]["frames"][-1]
         outputs["final_aatype"] = outputs["sm"]["aatype_"][-1]
-        outputs["final_aatype_dist"] = outputs["sm"]["aatype_dist"][-1] 
         
+        # disabling final aatype distribution during baseline test
+        if self.globals.track_seq_states:
+            outputs["final_aatype_dist"] = outputs["sm"]["aatype_dist"][-1] 
+            seqs_prev = outputs["sm"]["seqs"][-1]
+        else:
+            seqs_prev = None
         # [*, N, 37, 3]
         x_prev = outputs["final_atom_positions"]
-        
-        seqs_prev = outputs["sm"]["seqs"][-1]
-
         return outputs, m_1_prev, z_prev, x_prev, seqs_prev
 
 

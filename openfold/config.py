@@ -93,6 +93,7 @@ blocks_per_ckpt = mlc.FieldReference(None, field_type=int)
 chunk_size = mlc.FieldReference(4, field_type=int)
 aux_distogram_bins = mlc.FieldReference(64, field_type=int)
 tm_enabled = mlc.FieldReference(False, field_type=bool)
+track_seq_states = mlc.FieldReference(False, field_type=bool)
 eps = mlc.FieldReference(1e-8, field_type=float)
 residue_emb_enabled = mlc.FieldReference(False, field_type=bool)
 residue_attn_enabled = mlc.FieldReference(False, field_type=bool)
@@ -206,6 +207,8 @@ config = mlc.ConfigDict(
             "c_m_structure": c_m_structure,
             "eps": eps,
             "low_prec": False,
+            "track_seq_states":track_seq_states,
+            "lm_name": lm_name,
         },
         "optimizer": {
             "lr": 0.001,
@@ -224,6 +227,7 @@ config = mlc.ConfigDict(
                 "c_z": c_z,
                 "c_m": c_m,
                 "relpos_k": 32,
+                "lm_name": lm_name,
             },
             "inverse_input_embedder": {
                 "tf_dim": 21,
@@ -238,6 +242,7 @@ config = mlc.ConfigDict(
                 "max_bin": 20.75,
                 "no_bins": 15,
                 "inf": 1e8,
+                "track_seq_states": track_seq_states,
             },
             "residue_emb": {
                 "c_emb": 1280,
@@ -303,6 +308,7 @@ config = mlc.ConfigDict(
                 "trans_scale_factor": 10,
                 "epsilon": eps,  # 1e-12,
                 "inf": 1e5,
+                "track_seq_states": track_seq_states,
             },
             "inverse_structure_module": {
                 "c_m": c_m_structure,
@@ -396,6 +402,7 @@ config = mlc.ConfigDict(
             "seqs": {
                 "eps": eps,  # 1e-8,
                 "weight": seqs_weight,
+                "track_seq_states": track_seq_states,
             },
             "supervised_chi": {
                 "chi_weight": 0.5,
