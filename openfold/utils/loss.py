@@ -464,7 +464,6 @@ def compute_plddt(logits: torch.Tensor) -> torch.Tensor:
         dim=-1,
     )
 
-    print(f"pred_lddt_ca shape is {pred_lddt_ca.shape}")
     return pred_lddt_ca * 100
 
 
@@ -1830,10 +1829,7 @@ class AlphaFoldLoss(nn.Module):
                 all_atom_pred_pos=out["final_atom_positions"],
                 **{**batch, **self.config.lddt},
             ),
-            "seqs": lambda: seqs_loss(
-                logits=out["sm"]["seqs_logits"],
-                **{**batch, **self.config.seqs},
-            ),
+            
             "supervised_chi": lambda: supervised_chi_loss(
                 out["sm"]["angles"], # each step in the structure module
                 out["sm"]["unnormalized_angles"],
@@ -1844,6 +1840,12 @@ class AlphaFoldLoss(nn.Module):
                 **batch,
             ),
         }
+
+        if self.config.seqs.track_seq_states:
+            loss_fns["seqs"] = lambda: seqs_loss(
+                logits=out["sm"]["seqs_logits"],
+                **{**batch, **self.config.seqs},
+            )
 
         if self.config.tm.enabled:
             loss_fns["tm"] = lambda: tm_loss(
@@ -1856,6 +1858,7 @@ class AlphaFoldLoss(nn.Module):
         for loss_name, loss_fn in loss_fns.items():
             weight = self.config[loss_name].weight
 
+            # modified to avoid
             if weight > 0:
                 loss = loss_fn()
                 if(torch.isnan(loss) or torch.isinf(loss)):
