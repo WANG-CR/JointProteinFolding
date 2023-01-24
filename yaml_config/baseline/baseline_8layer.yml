@@ -18,6 +18,13 @@ globals:
   c_z_structure: 128
   c_m_structure: 384
 
+loss:
+  tm:
+    enabled: true
+    weight: 0.01
+  supervised_chi:
+    weight: 0.0
+
 data:
   data_module:
     data_loaders:

@@ -5,7 +5,6 @@ model:
     no_blocks: 8
   inverse_evoformer_stack:
     no_blocks: 16
-    
   residue_emb:
     enabled: true
     usage: replace
@@ -17,6 +16,14 @@ globals:
   c_z: 128
   c_z_structure: 128
   c_m_structure: 384
+  lm_name: esm2_t36_3B_UR50D
+
+loss:
+  tm:
+    enabled: true
+    weight: 0.01
+  supervised_chi:
+    weight: 0.0
 
 data:
   data_module:
