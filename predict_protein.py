@@ -110,8 +110,8 @@ def main(args):
 
     output_dir = args.output_dir
     # predict_dir = os.path.join(output_dir, 'pdb')
-    predict_unrelaxed_dir = os.path.join(output_dir, 'unrelaxed_pdb')
-    predict_relaxed_dir = os.path.join(output_dir, 'relaxed_pdb')
+    predict_unrelaxed_dir = os.path.join(output_dir, f'{args.config_preset}_rec{args.no_recycling_iters}_s{args.seed}', 'unrelaxed_pdb')
+    predict_relaxed_dir = os.path.join(output_dir, f'{args.config_preset}_rec{args.no_recycling_iters}_s{args.seed}', 'relaxed_pdb')
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
     # if not os.path.exists(predict_dir):
@@ -264,32 +264,32 @@ def main(args):
                 plddt[..., None], residue_constants.atom_type_num, axis=-1
             )
 
-            # align coordinates and compute rmsd_ca
-            gt_coords = batch["all_atom_positions"] # [*, N, 37, 3]
-            pred_coords = out["final_atom_positions"] # [*, N, 37, 3]
-            all_atom_mask = batch["all_atom_mask"] # [*, N, 37]
-            residue_mask = torch.sum(all_atom_mask, dim=-1)
-            residue_mask = torch.where(residue_mask>0,1,0)
-            # This is super janky for superimposition. Fix later
-            # get all atom mask's length
-            # crop coordinates to a length
-            pred_coords = torch.from_numpy(pred_coords)
-            gt_coords_masked = gt_coords * all_atom_mask[..., None] # [*, N, 37, 3]
-            pred_coords_masked = pred_coords * all_atom_mask[..., None] # [*, N, 37, 3]
-            ca_pos = residue_constants.atom_order["CA"]
-            gt_coords_masked_ca = gt_coords_masked[..., ca_pos, :] # [*, N, 3]
-            pred_coords_masked_ca = pred_coords_masked[..., ca_pos, :] # [*, N, 3]
-            all_atom_mask_ca = all_atom_mask[..., ca_pos] # [*, N]
-            superimposed_pred, _ = superimpose(
-                gt_coords_masked_ca, pred_coords_masked_ca
-                ) # [*, N, 3]
-            rmsd_ca = calculate_rmsd_ca(
-                superimposed_pred, gt_coords_masked_ca, residue_mask,
-            )
-            # logging.info(f">>> residue mask is {residue_mask}")
-            logging.info(f">>> rmsd_ca is {rmsd_ca}")
+            if not args.prediction_without_groundtruth:
+                # align coordinates and compute rmsd_ca
+                gt_coords = batch["all_atom_positions"] # [*, N, 37, 3]
+                pred_coords = out["final_atom_positions"] # [*, N, 37, 3]
+                all_atom_mask = batch["all_atom_mask"] # [*, N, 37]
+                residue_mask = torch.sum(all_atom_mask, dim=-1)
+                residue_mask = torch.where(residue_mask>0,1,0)
+                # This is super janky for superimposition. Fix later
+                # get all atom mask's length
+                # crop coordinates to a length
+                pred_coords = torch.from_numpy(pred_coords)
+                gt_coords_masked = gt_coords * all_atom_mask[..., None] # [*, N, 37, 3]
+                pred_coords_masked = pred_coords * all_atom_mask[..., None] # [*, N, 37, 3]
+                ca_pos = residue_constants.atom_order["CA"]
+                gt_coords_masked_ca = gt_coords_masked[..., ca_pos, :] # [*, N, 3]
+                pred_coords_masked_ca = pred_coords_masked[..., ca_pos, :] # [*, N, 3]
+                all_atom_mask_ca = all_atom_mask[..., ca_pos] # [*, N]
+                superimposed_pred, _ = superimpose(
+                    gt_coords_masked_ca, pred_coords_masked_ca
+                    ) # [*, N, 3]
+                rmsd_ca = calculate_rmsd_ca(
+                    superimposed_pred, gt_coords_masked_ca, residue_mask,
+                )
+                # logging.info(f">>> residue mask is {residue_mask}")
+                logging.info(f">>> rmsd_ca is {rmsd_ca}")
             
-
         # protein object saving & relaxation
         batch = tensor_tree_map(lambda x: np.array(x.cpu()), batch)
         # print(f">> check identity of aatype between input and output: {torch.all(out['final_aatype'] == batch['aatype'])}")
@@ -303,7 +303,7 @@ def main(args):
         # Save the unrelaxed PDB.
         unrelaxed_output_path = os.path.join(
             predict_unrelaxed_dir,
-            f"{name}_{args.config_preset}_rec{args.no_recycling_iters}_s{args.seed}_unrelaxed.pdb"
+            f"{name}_unrelaxed.pdb"
         )
         with open(unrelaxed_output_path, 'w') as f:
             f.write(protein.to_pdb(unrelaxed_protein))
@@ -332,7 +332,7 @@ def main(args):
                 # Save the relaxed PDB.
                 relaxed_output_path = os.path.join(
                     predict_relaxed_dir,
-                    f"{name}_{args.config_preset}_rec{args.no_recycling_iters}_s{args.seed}_relaxed.pdb"
+                    f"{name}_relaxed.pdb"
                 )
                 with open(relaxed_output_path, 'w') as f:
                     f.write(relaxed_pdb_str)
@@ -370,6 +370,10 @@ if __name__ == "__main__":
     parser.add_argument(
         "--resume_from_ckpt", type=str,
         help="Path to model parameters."
+    )
+    parser.add_argument(
+        "--prediction_without_groundtruth", type=bool_type, default=False,
+        help="evaluation or prediction"
     )
     parser.add_argument(
         "--version", type=str, default=None,
