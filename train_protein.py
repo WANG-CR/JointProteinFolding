@@ -242,6 +242,7 @@ def main(args):
     data_module.setup()
     callbacks = []
     if(args.checkpoint_every_epoch):
+        print(f">>> saving top 1 checkpoint")
         mc = ModelCheckpoint(
             filename="epoch{epoch:02d}-step{step}-val_loss={val/loss:.3f}",
             auto_insert_metric_name=False,
@@ -249,7 +250,7 @@ def main(args):
             mode="min",
             every_n_epochs=1,
             save_last=False,
-            save_top_k=5,
+            save_top_k=1,
         )
         callbacks.append(mc)
 
