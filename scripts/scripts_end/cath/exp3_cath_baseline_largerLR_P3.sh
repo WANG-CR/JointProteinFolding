@@ -7,9 +7,9 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=112
 #SBATCH --time=48:00:00
-#SBATCH --reservation=25507
-#SBATCH --output=log/exp3_cath_baseline_3B.out
-#SBATCH --error=log/exp3_cath_baseline_3B.err
+#SBATCH --reservation=25517
+#SBATCH --output=log/exp5_cath_baseline_3B_P5.out
+#SBATCH --error=log/exp5_cath_baseline_3B_P5.err
 
 source ~/scratch/pf_cpu/bin/activate
 
@@ -39,13 +39,14 @@ export OMP_NUM_THREADS=100
 TORCH_DISTRIBUTED_DEBUG=DETAIL srun python train_protein.py $TRAIN_DIR $OUTPUT_DIR \
     --val_data_dir $VALID_DIR \
     --seed 2024 \
-    --yaml_config_preset yaml_config/baseline/baseline_8layer_3B.yml \
-    --precision 32  --log_every_n_steps 50 \
-    --train_epoch_len 4800 \
+    --yaml_config_preset yaml_config/baseline/baseline_8layer_3B_largebs.yml \
+    --precision 32  --log_every_n_steps 5 \
+    --train_epoch_len 7680 \
     --accelerator cpu \
     --devices 48 \
     --num_nodes 1 \
     --wandb true \
     --wandb_entity chuanrui \
-    --wandb_version cath_baseline_run2 \
+    --wandb_version cath_baseline_bs16_epochlen7680_step165_P5 \
     --wandb_project debug_endeavour \
+    --resume_from_ckpt /home/Xcwang/scratch/JointProteinFolding/output_cath/debug_endeavour/baseline_8layer_3B_largebs-cath_baseline_bs16_epochlen7680_step165_P5/checkpoints/epoch216-step2169-val_loss=2.236.ckpt \
