@@ -142,3 +142,10 @@ tests/test_data/sample_feats.pickle.gz
 lightning_logs/
 wandb/
 tb_logs/
+nodefile.*
+prepjob.*
+*.ckpt
+*.err
+*.out
+prolog_slurmd.*
+*unrelaxed.pdb
