@@ -20,6 +20,7 @@ from openfold.np import residue_constants, protein
 from openfold.model.model import AlphaFold
 from openfold.data import feature_pipeline, data_pipeline, data_transforms
 from openfold.config import model_config
+from openfold.utils.validation_metrics import gdt_ts
 
 import debugger
 
@@ -31,6 +32,14 @@ def gather_job(pdb_dir):
             pdb_paths.append(pdb_path)
     
     return pdb_paths
+
+def print_mean_metric(metric):
+    mean_value = 0
+    for i in metric:
+        mean_value = i + mean_value
+    mean_value = mean_value / len(metric)
+    return mean_value
+
 
 def compute_perplexity(gt_aatype_one_hot, pred_aatype_dist, loop_index):
     #pred_aatype_dist is a distribution
@@ -125,6 +134,10 @@ def main(args):
     logging.info(f'got {len(jobs)} jobs...')
     # Get input 
     metrics = []
+    list_rmsd = []
+    list_gdt_ts = []
+    list_tm = []
+    list_mean_plddt = []
     logging.info(f'predicting with {args.no_recycling_iters} recycling iterations...')
     for job in jobs:
         f_path = os.path.basename(job)
@@ -241,6 +254,7 @@ def main(args):
 
             logging.info(f">>> tm_score is {out['predicted_tm_score']}")
             logging.info(f">>> max_predicted_aligned_error is {out['max_predicted_aligned_error']}")
+            list_tm.append(out['predicted_tm_score'].item())
 
             try:
                 del out['sm']
@@ -258,6 +272,7 @@ def main(args):
             # print(f">>> output contains batchsize dimension: {out['final_aatype']}")
             plddt = out["plddt"] # [*, N]
             logging.info(f">>> mean plddt is {np.mean(plddt)}")
+            list_mean_plddt.append(np.mean(plddt))
 
             # [*, N, 37]
             plddt_b_factors = np.repeat(
@@ -287,9 +302,15 @@ def main(args):
                 rmsd_ca = calculate_rmsd_ca(
                     superimposed_pred, gt_coords_masked_ca, residue_mask,
                 )
+                gdt_ts_score = gdt_ts(
+                    superimposed_pred, gt_coords_masked_ca, all_atom_mask_ca
+                )
                 # logging.info(f">>> residue mask is {residue_mask}")
                 logging.info(f">>> rmsd_ca is {rmsd_ca}")
-            
+                logging.info(f">>> gdt_ts is {gdt_ts_score}")
+                list_rmsd.append(rmsd_ca)
+                list_gdt_ts.append(gdt_ts_score)
+
         # protein object saving & relaxation
         batch = tensor_tree_map(lambda x: np.array(x.cpu()), batch)
         # print(f">> check identity of aatype between input and output: {torch.all(out['final_aatype'] == batch['aatype'])}")
@@ -340,7 +361,10 @@ def main(args):
                 logging.warning(e)
                 logging.warning("relaxation failed...")
 
-
+    logging.info(f">>>>>> final mean plddt is {print_mean_metric(list_mean_plddt)}")
+    logging.info(f">>>>>> final mean rmsd is {print_mean_metric(list_rmsd)}")
+    logging.info(f">>>>>> final mean gdt_ts is {print_mean_metric(list_gdt_ts)}")
+    logging.info(f">>>>>> final mean tm is {print_mean_metric(list_tm)}")
 
 
     # after predicting all samples, compute the metric's statistic
