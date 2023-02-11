@@ -168,7 +168,7 @@ class Linear(nn.Linear):
 
 
 class LayerNorm(nn.Module):
-    def __init__(self, c_in, eps=1e-5):
+    def __init__(self, c_in, eps=1e-5, device="cpu"):
         super(LayerNorm, self).__init__()
         
         self.c_in = (c_in,)
@@ -176,12 +176,14 @@ class LayerNorm(nn.Module):
 
         self.weight = nn.Parameter(torch.ones(c_in))
         self.bias = nn.Parameter(torch.zeros(c_in))
+        self.device = device
 
     @torch.jit.ignore
     def forward(self, x): 
         d = x.dtype
         if(d is torch.bfloat16 and not deepspeed.utils.is_initialized()):
-            with torch.cuda.amp.autocast(enabled=False):
+            # with torch.cuda.amp.autocast(enabled=False):
+            with torch.autocast(self.device, enabled=False):
                 out = nn.functional.layer_norm(
                     x, 
                     self.c_in, 

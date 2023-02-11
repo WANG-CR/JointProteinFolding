@@ -1,0 +1,19 @@
+model:
+  evoformer_stack:
+    no_blocks: 8
+  structure_module:
+    no_blocks: 8
+
+optimizer:
+  lr: 0.001
+
+
+# batchsize = 144
+# we need to divise by 144
+# 5000/144 = 2666
+# 2666/16 = 166
+
+scheduler:
+  warmup_no_steps: 70
+  start_decay_after_n_steps: 700
+  decay_every_n_steps: 70

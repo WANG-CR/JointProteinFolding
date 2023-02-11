@@ -19,6 +19,7 @@ from torch import nn
 import torch.nn.functional as F
 from torch_geometric.nn import MessagePassing
 from torch_scatter import scatter_add, scatter
+import openfold.model.primitives as primitives
 
 def tuple_size(tp):
     return tuple([0 if a is None else a.size() for a in tp])
@@ -105,6 +106,8 @@ class GVP(nn.Module):
         super(GVP, self).__init__()
         self.si, self.vi = in_dims
         self.so, self.vo = out_dims
+        # print(f"in dimensions {self.si}, {self.vi}")
+        # print(f"out dimensions {self.so}, {self.vo}")
         self.tuple_io = tuple_io
         if self.vi: 
             self.h_dim = h_dim or max(self.vi, self.vo) 
@@ -131,6 +134,8 @@ class GVP(nn.Module):
         if self.vi:
             s, v = x
             v = torch.transpose(v, -1, -2)
+            # print(f">>>135 v dtype is {v.dtype}")
+            # print(f">>>136 linear layer wh shape is {self.wh.weight.shape}")
             vh = self.wh(v)    
             vn = _norm_no_nan(vh, axis=-2, eps=self.eps)
             s = self.ws(torch.cat([s, vn], -1))
@@ -224,7 +229,7 @@ class LayerNorm(nn.Module):
         super(LayerNorm, self).__init__()
         self.tuple_io = tuple_io
         self.s, self.v = dims
-        self.scalar_norm = nn.LayerNorm(self.s)
+        self.scalar_norm = primitives.LayerNorm(self.s)
         self.eps = eps
         
     def forward(self, x):
@@ -238,20 +243,20 @@ class LayerNorm(nn.Module):
                 return self.scalar_norm(x[0]), None
             return self.scalar_norm(x)
         s, v = x
-        #print(f"255 s dtype: {s.dtype}")
-        #print(f"256 v dtype: {v.dtype}")
+        # print(f"241 s dtype: {s.dtype}")
+        # print(f"242 v dtype: {v.dtype}")
         vn = _norm_no_nan(v, axis=-1, keepdims=True, sqrt=False, eps=self.eps)
-        #print(f"244 v dtype: {vn.dtype}")
+        # print(f"244 v dtype: {vn.dtype}")
         nonzero_mask = (vn > 2 * self.eps)
-        #print(f"246 v dtype: {nonzero_mask.dtype}")
+        # print(f"246 v dtype: {nonzero_mask.dtype}")
         nonzero_mask = nonzero_mask.to(dtype=vn.dtype)
         vn = torch.sum(vn * nonzero_mask, dim=-2, keepdim=True
             ) / (self.eps + torch.sum(nonzero_mask, dim=-2, keepdim=True))
-        #print(f"249 v dtype: {vn.dtype}")
+        # print(f"249 v dtype: {vn.dtype}")
         vn = torch.sqrt(vn + self.eps)
-        #print(f"251 v dtype: {vn.dtype}")
+        # print(f"251 v dtype: {vn.dtype}")
         v = nonzero_mask * (v / vn)
-        #print(f"253 v dtype: {v.dtype}")
+        # print(f"253 v dtype: {v.dtype}")
         return self.scalar_norm(s), v
 
 class GVPConv(MessagePassing):

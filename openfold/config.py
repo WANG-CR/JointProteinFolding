@@ -88,6 +88,12 @@ c_m = mlc.FieldReference(1024, field_type=int)
 c_m_structure = mlc.FieldReference(384, field_type=int)
 c_z_structure = mlc.FieldReference(128, field_type=int)
 
+inv_c_z = mlc.FieldReference(128, field_type=int)
+inv_c_m = mlc.FieldReference(1024, field_type=int)
+
+inv_c_m_structure = mlc.FieldReference(384, field_type=int)
+inv_c_z_structure = mlc.FieldReference(128, field_type=int)
+
 lm_name = mlc.FieldReference("esm2_t33_650M_UR50D", field_type=str)
 blocks_per_ckpt = mlc.FieldReference(None, field_type=int)
 chunk_size = mlc.FieldReference(4, field_type=int)
@@ -205,6 +211,10 @@ config = mlc.ConfigDict(
             "c_m": c_m,
             "c_z_structure": c_z_structure,
             "c_m_structure": c_m_structure,
+            "inv_c_z": inv_c_z,
+            "inv_c_m": inv_c_m,
+            "inv_c_z_structure": inv_c_z_structure,
+            "inv_c_m_structure": inv_c_m_structure,
             "eps": eps,
             "low_prec": False,
             "track_seq_states":track_seq_states,
@@ -231,8 +241,8 @@ config = mlc.ConfigDict(
             },
             "inverse_input_embedder": {
                 "tf_dim": 21,
-                "c_z": c_z,
-                "c_m": c_m,
+                "c_z": inv_c_z,
+                "c_m": inv_c_m,
                 "relpos_k": 32,
             },
             "recycling_embedder": {
@@ -274,10 +284,10 @@ config = mlc.ConfigDict(
                 "inf": 1e9,
             },
             "inverse_evoformer_stack": {
-                "c_m": c_m,
-                "c_z": c_z,
-                "c_m_structure": c_m_structure,
-                "c_z_structure": c_z_structure,
+                "c_m": inv_c_m,
+                "c_z": inv_c_z,
+                "c_m_structure": inv_c_m_structure,
+                "c_z_structure": inv_c_z_structure,
                 "c_hidden_seq_att": 32,
                 "c_hidden_opm": 32,
                 "c_hidden_mul": 128,

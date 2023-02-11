@@ -23,8 +23,6 @@ from openfold.model.evoformer import EvoformerStack
 from openfold.model.heads import AuxiliaryHeads
 import openfold.np.residue_constants as residue_constants
 from openfold.np.residue_constants import restype_num
-from openfold.model.structure_module import StructureModule, SeqResnet
-from openfold.model.gvp.gvp_gnn_encoder import GVPGNNEncoder
 from openfold.utils.loss import check_inf_nan
 from openfold.utils.feats import compute_pair_rbf
 from openfold.utils.tensor_utils import tensor_tree_map, permute_final_dims
@@ -132,11 +130,17 @@ class AlphaFoldInverse(nn.Module):
         )
 
         self.use_mlp = True
-        self.mlp = MultiLayerPerceptron(
-            input_dim=self.config["inverse_evoformer_stack"]["c_m"],
-            hidden_dims=[self.config["inverse_structure_module"]["c_m"], self.config["inverse_structure_module"]["c_m"], restype_num + 1],
-        )
+        # self.mlp = MultiLayerPerceptron(
+        #     input_dim=self.config["inverse_evoformer_stack"]["c_m"],
+        #     hidden_dims=[self.config["inverse_structure_module"]["c_m"], self.config["inverse_structure_module"]["c_m"], restype_num + 1],
+        # )
         
+        #modify to accomodate the original trained checkpoint
+        self.mlp = MultiLayerPerceptron(
+            input_dim=self.config["inverse_structure_module"]["c_m"],
+            hidden_dims=[self.config["inverse_structure_module"]["c_m"], restype_num + 1],
+        )
+        self.linear_m2s = Linear(self.config["inverse_evoformer_stack"]["c_m"], self.config["inverse_structure_module"]["c_m"])
         self.aux_heads = None
 
     def iteration(
@@ -232,6 +236,7 @@ class AlphaFoldInverse(nn.Module):
         
         # Predict 3D structure
         if self.use_mlp:
+            m = self.linear_m2s(m)
             logits = self.mlp(m)
             outputs["sm"] = {}
             outputs["sm"]["seqs_logits"] = logits.unsqueeze(0)
@@ -431,6 +436,7 @@ class AlphaFoldInverse(nn.Module):
        
         # Predict 3D structure
         if self.use_mlp:
+            m = self.linear_m2s(m)
             logits = self.mlp(m)
             outputs["sm"] = {}
             outputs["sm"]["seqs_logits"] = logits.unsqueeze(0)
@@ -535,6 +541,73 @@ class AlphaFoldInverse(nn.Module):
 
         # logits = outputs["sm"]["seqs_logits"]
         return outputs
+
+    def predict(self, coords, temperature):
+        """
+        """
+        # Initialize recycling embeddings
+        m_1_prev, z_prev, x_prev = None, None, None
+        seqs_prev = None
+        
+        # denoise feats
+        # it is empty if denoise_enabled is False
+        denoise_feats = {}
+
+        # Disable activation checkpointing for the first few recycling iters
+        is_grad_enabled = torch.is_grad_enabled()
+        self._disable_activation_checkpointing()
+
+        # Main recycling loop
+        # num_iters = batch["aatype"].shape[-1]
+        recycle_outputs = []
+        num_iters = 1
+
+        # dummy disable recycling
+        for cycle_no in range(num_iters):
+            # Select the features for the current recycling cycle
+            
+            # fetch_cur_batch = lambda t: t[..., cycle_no]
+            # feats = tensor_tree_map(fetch_cur_batch, batch)
+            feats = batch
+            
+            # Enable grad iff we're training and it's the final recycling layer
+            is_final_iter = cycle_no == (num_iters - 1)
+            with torch.set_grad_enabled(is_grad_enabled and is_final_iter):
+                if is_final_iter:
+                    self._enable_activation_checkpointing()
+                    # Sidestep AMP bug (PyTorch issue #65766)
+                    if torch.is_autocast_enabled():
+                        torch.clear_autocast_cache()
+                
+                # identity rigid.
+                initial_rigids = None
+
+                # Run the next iteration of the model
+                # only run once
+                outputs, m_1_prev, z_prev, x_prev, seqs_prev = self.iteration_h(
+                    feats,
+                    coords, 
+                    m_1_prev,
+                    z_prev,
+                    x_prev,
+                    seqs_prev,
+                    initial_rigids=initial_rigids,
+                    initial_seqs=None,
+                    _recycle=(num_iters > 1),
+                    denoise_feats=denoise_feats,
+                )
+                # outputs.update(self.aux_heads(outputs))
+                recycle_outputs.append(outputs)
+
+        outputs = copy.copy(outputs)
+        # outputs.update(self.aux_heads(outputs)) # done in the loop
+        # outputs["recycle_outputs"] = recycle_outputs
+
+        # logits = outputs["sm"]["seqs_logits"]
+        return outputs
+
+    def score_sequence(self):
+        return 0
 
     def denoise_inference_forward(
         self,
