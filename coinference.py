@@ -11,7 +11,7 @@ import pickle
 import numpy as np
 import pandas as pd
 import torch
-
+import torch.nn.functional as F
 from openfold.utils.tensor_utils import tensor_tree_map
 from openfold.utils.feats import atom14_to_atom37
 from openfold.utils.seed import seed_everything
@@ -22,7 +22,7 @@ from openfold.model.model_inv import AlphaFoldInverse
 from openfold.data import feature_pipeline, data_pipeline, data_transforms
 from openfold.config import model_config
 from openfold.utils.validation_metrics import gdt_ts
-import torch.nn.functional as F
+from openfold.model.esm.esmfold import ESMFold, ESMFoldConfig, constructConfigFromYAML
 
 import debugger
 
@@ -42,6 +42,18 @@ def print_mean_metric(metric):
     mean_value = mean_value / len(metric)
     return mean_value
 
+def save_protein(batch, output, output_dir, name, postfix):
+    unrelaxed_protein = protein.from_prediction(
+        features=batch,
+        result=output,
+        chain_index=batch["chain_index"],
+    )        
+    unrelaxed_output_path = os.path.join(
+        output_dir,
+        f"{name}_{postfix}.pdb"
+    )
+    with open(unrelaxed_output_path, 'w') as f:
+        f.write(protein.to_pdb(unrelaxed_protein))
 
 def compute_perplexity(gt_aatype_one_hot, pred_aatype_dist, loop_index):
     #pred_aatype_dist is a distribution
@@ -56,6 +68,43 @@ def compute_perplexity(gt_aatype_one_hot, pred_aatype_dist, loop_index):
     ppl = -1 / len(ppl) * torch.sum(ppl)
     ppl = torch.exp(ppl)
     return ppl.item()
+
+##for each sample, compute Sequence RMSD for different loops region
+def calculate_rmsd_ca(p1, p2, mask):
+    """
+        Compute GDT between two structures.
+        (Global Distance Test under specified distance cutoff)
+        Args:
+            p1:
+                [*, N, 3] superimposed predicted (ca) coordinate tensor
+            p2:
+                [*, N, 3] ground-truth (ca) coordinate tensor
+            mask:
+                [*, N] residue masks
+            cutoffs:
+                A tuple of size 4, which contains distance cutoffs.
+        Returns:
+            A [*] tensor contains the final GDT score.
+    """
+    n = torch.sum(mask, dim=-1) # [*]
+    
+    p1 = p1.float()
+    p2 = p2.float()
+    distance = torch.sum((p1 - p2)**2, dim=-1)    # [*, N]
+    rmsd = torch.sqrt(torch.sum(distance * mask, dim=-1)/ (mask.sum()+ 1e-6))
+    return rmsd.item()
+
+def calculate_structure_score(gt_coords_masked_ca, pred_coords_masked_ca, residue_mask, all_atom_mask_ca):   
+    superimposed_pred, _ = superimpose(
+        gt_coords_masked_ca, pred_coords_masked_ca
+        ) # [*, N, 3]
+    rmsd_ca = calculate_rmsd_ca(
+        superimposed_pred, gt_coords_masked_ca, residue_mask,
+    )
+    gdt_ts_score = gdt_ts(
+        superimposed_pred, gt_coords_masked_ca, all_atom_mask_ca
+    )
+    return rmsd_ca, gdt_ts_score
 
 def bool_type(bool_str: str):
     bool_str_lower = bool_str.lower()
@@ -76,8 +125,14 @@ def main(args):
         train=False,
         low_prec=False,
     )
+    
+    # Loading forward model'scheckpoint
+    model_data = torch.hub.load_state_dict_from_url("https://dl.fbaipublicfiles.com/fair-esm/models/esmfold_3B_v1.pt", progress=False, map_location="cpu")
+    cfg = constructConfigFromYAML(config)
+    model_state = model_data["model"]
+    f_model = ESMFold(esmfold_config=cfg, using_fair=True)
+    f_model.load_state_dict(model_state, strict=False)
     g_model = AlphaFoldInverse(config)
-
     if args.resume_from_ckpt_backward is not None:
         # Loading backward model'scheckpoint
         sd = torch.load(args.resume_from_ckpt_backward, map_location=torch.device('cpu'))
@@ -92,6 +147,8 @@ def main(args):
         g_model = g_model.eval()
         logging.info("Successfully loaded backward model weights...")
 
+    print(f">>> printing forward model:")
+    print(f_model)
     print(f">>> printing backward model:")
     print(g_model)
 
@@ -101,17 +158,8 @@ def main(args):
     feature_processor = feature_pipeline.FeaturePipeline(config.data)
 
     output_dir = args.output_dir
-    # predict_dir = os.path.join(output_dir, 'pdb')
-    predict_unrelaxed_dir = os.path.join(output_dir, f'{args.config_preset}_rec{args.no_recycling_iters}_s{args.seed}', 'unrelaxed_pdb')
-    predict_relaxed_dir = os.path.join(output_dir, f'{args.config_preset}_rec{args.no_recycling_iters}_s{args.seed}', 'relaxed_pdb')
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
-    # if not os.path.exists(predict_dir):
-    #     os.makedirs(predict_dir)
-    if not os.path.exists(predict_unrelaxed_dir):
-        os.makedirs(predict_unrelaxed_dir)
-    if not os.path.exists(predict_relaxed_dir):
-        os.makedirs(predict_relaxed_dir)
 
     jobs = gather_job(args.pdb_path)
     logging.info(f'got {len(jobs)} jobs...')
@@ -121,113 +169,115 @@ def main(args):
     # list_gdt_ts = []
     # list_tm = []
     # list_mean_plddt = []
-    list_aar = []
-    list_ppl = []
     logging.info(f'predicting with {args.no_recycling_iters} recycling iterations...')
     for job in jobs:
         f_path = os.path.basename(job)
         name = f_path[:args.name_length].lower()
 
+        # process pdb feature
         feature_dict = data_processor.process_pdb(
             pdb_path=job,
         )
         feature_dict["no_recycling_iters"] = args.no_recycling_iters
-        processed_feature_dict = feature_processor.process_features(
+        batch = feature_processor.process_features(
             feature_dict,
             mode="predict",
         )
+        batch = {
+            k: torch.as_tensor(v, device=args.model_device).unsqueeze_(0)
+            for k, v in batch.items()
+        }
+        sequence1 = feature_dict["sequence"][0].decode("utf-8") 
+        sequence_test = residue_constants.aatype_to_sequence(batch["aatype"][0, ..., -1])
+        print(f'>>>sequence is: {sequence1}')
+        print(f'>>>sequence test is: {sequence_test}')
 
-        logging.info("Executing model...")
-        batch = processed_feature_dict
+        ######## begin inference #########
+        ######## model1 #########
         with torch.no_grad():
-            batch = {
-                k: torch.as_tensor(v, device=args.model_device).unsqueeze_(0)
-                for k, v in batch.items()
-            }
-            out = g_model(batch)
+            output1 = f_model.infer_bb(sequence1, num_recycles=3, cpu_only=True)
+        bb_coords_1 = output1['bb_coords']
+        all_coords_1 = output1['final_atom_positions']
+        print(f">>> output of infer_bb is {bb_coords_1.shape}")
 
-
-        # Toss out the recycling dimensions --- we don't need them anymore
-        # batch = tensor_tree_map(lambda x: np.array(x[..., -1].cpu()), batch)
-        batch = tensor_tree_map(lambda x: x[0, ..., -1].cpu(), batch)
-        out = tensor_tree_map(lambda x: np.array(x[0, ...].cpu()), out)
-        final_pred_aatype_dist = out["sm"]["seqs_logits"][-1]
-        final_pred_aatype_dist = torch.from_numpy(final_pred_aatype_dist)
-        gt_aatype = batch["aatype"]
-        # masked_pred = logits.masked_select(batch["seq_mask"].unsqueeze(-1).to(torch.bool)).view(-1, residue_constants.restype_num+1) # Nl x 21
-        # masked_target = aatype.masked_select(batch["seq_mask"].to(torch.bool)).view(-1)    # Nl
-        ce = F.cross_entropy(final_pred_aatype_dist, gt_aatype)
-        ppl = ce.exp()
-        list_ppl.append(ppl)
-        #
+        ######## model2 #########
+        with torch.no_grad():
+            output2 = g_model.forward_h(batch, bb_coords_1)
+        output2 = tensor_tree_map(lambda x: x[0, ...].cpu(), output2)
+        final_pred_aatype_dist = output2["sm"]["seqs_logits"][-1]
         final_pred_aatype_dist[..., -1] = -9999 # zero out UNK.
         sampled_seqs = final_pred_aatype_dist.argmax(dim=-1)    # greedy sampling
-        # masked_sampled_seqs = sampled_seqs.masked_select(batch["seq_mask"].to(torch.bool)).view(-1) # N x Nl
-        aars = sampled_seqs.eq(gt_aatype).float().mean()
-        print(f">>> aars is {aars}")
-        list_aar.append(aars)
+        sequence2 = residue_constants.aatype_to_sequence(sampled_seqs)
 
-        # multinomial sampling
-        # final_pred_aatype = torch.argmax(final_pred_aatype_dist, dim=-1)    
-        # gt_aatype_one_hot = data_transforms.make_one_hot(gt_aatype, 21)
-        # loop_index = batch["loop_index"]
-        # num_samples = 10000
-        # num_k = 100
-        # aatype_sample10000 = torch.multinomial(final_pred_aatype_dist, num_samples, replacement=True).permute(1,0)
-        # aatype_sample_onehot = data_transforms.make_one_hot(aatype_sample10000, 21)
-        # likelihood = (final_pred_aatype_dist[None, ...].repeat(num_samples,1,1))[aatype_sample_onehot.to(torch.bool)].view(num_samples, -1)
-        # log_likelihood = torch.log(likelihood)
-        # log_likelihood = torch.sum(log_likelihood, -1)
-        # _, indice = torch.sort(log_likelihood,descending=True)
-        # aatype_sample100 = aatype_sample10000[indice[:num_k], :]
-        # loop_index100 = loop_index.expand(num_k,-1)
-        # # calculate AAR of sampled sequence
-        # for i in range(1,7):
-        #     metric["sampleAAR"+str(i)] = ((gt_aatype[loop_index==i].repeat(num_k) == aatype_sample100[loop_index100==i]).sum() / len(gt_aatype[loop_index==i]) / num_k).item()
-        # logging.info(f"loop H3 sample aar of {name}: {metric['sampleAAR3']}")
-            
-        # # calculate AAR of argmax predicted sequence
-        # for i in range(1,7):
-        #     metric["aar"+str(i)] = ((final_pred_aatype[loop_index==i] == gt_aatype[loop_index==i]).sum() / len(gt_aatype[loop_index==i])).item()
-        # logging.info(f"loop H3 aar of {name}: {metric['aar3']}")
+        ######## model3 #########
+        with torch.no_grad():
+            output3 = f_model.infer_bb(sequence2, num_recycles=3, cpu_only=True)
+        bb_coords_3 = output3['bb_coords']
+        all_coords_3 = output3['final_atom_positions']
 
-        # # for predicted aatype distribution, compute perplexity
-        # for i in range(1,7):
-        #     metric["ppl"+str(i)] = compute_perplexity(gt_aatype_one_hot,final_pred_aatype_dist,loop_index==i)
+        ######## model4 #########
+        # inverse folding from native bb
+        with torch.no_grad():
+            output4 = g_model.forward(batch)
+        output4 = tensor_tree_map(lambda x: x[0, ...].cpu(), output4)
+        final_pred_aatype_dist2 = output4["sm"]["seqs_logits"][-1]
+        final_pred_aatype_dist2[..., -1] = -9999 # zero out UNK.
+        sampled_seqs2 = final_pred_aatype_dist2.argmax(dim=-1)    # greedy sampling
 
-        # # align coordinates and compute rmsd_ca
-        # gt_coords = batch["all_atom_positions"] # [*, N, 37, 3]
-        # pred_coords = out["final_atom_positions"] # [*, N, 37, 3]
-        # all_atom_mask = batch["all_atom_mask"] # [*, N, 37]
-        # # This is super janky for superimposition. Fix later
-        # pred_coords = torch.from_numpy(pred_coords)
-        # gt_coords_masked = gt_coords * all_atom_mask[..., None] # [*, N, 37, 3]
-        # pred_coords_masked = pred_coords * all_atom_mask[..., None] # [*, N, 37, 3]
-        # ca_pos = residue_constants.atom_order["CA"]
-        # gt_coords_masked_ca = gt_coords_masked[..., ca_pos, :] # [*, N, 3]
-        # pred_coords_masked_ca = pred_coords_masked[..., ca_pos, :] # [*, N, 3]
-        # all_atom_mask_ca = all_atom_mask[..., ca_pos] # [*, N]
-        # superimposed_pred, _ = superimpose(
-        #     gt_coords_masked_ca, pred_coords_masked_ca
-        #     ) # [*, N, 3]
         
-        # for i in range(1,7):
-        #     metric["rmsd"+str(i)] = calculate_rmsd_ca(
-        #         superimposed_pred, gt_coords_masked_ca, loop_index==i
-        #     )
+        ## plddt
+        ## temperature sampling
+    
+        ###### evaluation #######
+        batch = tensor_tree_map(lambda x: x[0, ..., -1].cpu(), batch)
+        gt_aatype = batch["aatype"]
+        ce = F.cross_entropy(final_pred_aatype_dist, gt_aatype)
+        ppl = ce.exp()
+        aars = sampled_seqs.eq(gt_aatype).float().mean()
+        print(f">>> ppl from predcited bb is {ppl}")
+        print(f">>> aars from predcited bb is {aars}")
+        print(f">>> sampled_seqs from predcited bb is: {sampled_seqs}")
 
-        # metrics.append(metric)
+        ce2 = F.cross_entropy(final_pred_aatype_dist2, gt_aatype)
+        ppl2 = ce2.exp()
+        aars2 = sampled_seqs2.eq(gt_aatype).float().mean()
+        print(f">>> ppl from native bb is {ppl2}")
+        print(f">>> aars from native bb is {aars2}")
+        print(f">>> sampled_seqs from native bb is: {sampled_seqs2}")
 
-
+        if not args.prediction_without_groundtruth:
+            # align coordinates and compute rmsd_ca
+            gt_coords = batch["all_atom_positions"] # [*, N, 37, 3]
+            all_atom_mask = batch["all_atom_mask"] # [*, N, 37]
+            gt_coords_masked = gt_coords * all_atom_mask[..., None] # [*, N, 37, 3]
+            residue_mask = torch.sum(all_atom_mask, dim=-1)
+            residue_mask = torch.where(residue_mask>0,1,0)
+            ca_pos = residue_constants.atom_order["CA"]
+            gt_coords_masked_ca = gt_coords_masked[..., ca_pos, :] # [*, N, 3]
+            all_atom_mask_ca = all_atom_mask[..., ca_pos] # [*, N]
             
+            pred_coords1 = all_coords_1 # [*, N, 37, 3]
+            pred_coords_masked1 = pred_coords1 * all_atom_mask[..., None] # [*, N, 37, 3]
+            pred_coords_masked_ca1 = pred_coords_masked1[..., ca_pos, :] # [*, N, 3]
+            rmsd_ca1, gdt_ts_score1 = calculate_structure_score(gt_coords_masked_ca, pred_coords_masked_ca1, residue_mask, all_atom_mask_ca)
+            # logging.info(f">>> residue mask is {residue_mask}")
+            print(f">>> rmsd_ca of direct prediction is {rmsd_ca1}")
+            print(f">>> gdt_ts of direct prediction is {gdt_ts_score1}")
 
-    logging.info(f">>>>>> final mean pplis {print_mean_metric(list_ppl)}")
-    logging.info(f">>>>>> final mean aar is {print_mean_metric(list_aar)}")
-    # logging.info(f">>>>>> final mean gdt_ts is {print_mean_metric(list_gdt_ts)}")
-    # logging.info(f">>>>>> final mean tm is {print_mean_metric(list_tm)}")
+            pred_coords3 = all_coords_3 # [*, N, 37, 3]
+            pred_coords_masked3 = pred_coords3 * all_atom_mask[..., None] # [*, N, 37, 3]
+            pred_coords_masked_ca3 = pred_coords_masked3[..., ca_pos, :] # [*, N, 3]
+            rmsd_ca3, gdt_ts_score3 = calculate_structure_score(gt_coords_masked_ca, pred_coords_masked_ca3, residue_mask, all_atom_mask_ca)
+            # logging.info(f">>> residue mask is {residue_mask}")
+            print(f">>> rmsd_ca of indirect prediction is {rmsd_ca3}")
+            print(f">>> gdt_ts of indirect prediction is {gdt_ts_score3}")
 
-
-    # after predicting all samples, compute the metric's statistic
+            ## protein object saving & relaxation
+            output1 = tensor_tree_map(lambda x: np.array(x[0, ...]), output1)
+            output3 = tensor_tree_map(lambda x: np.array(x[0, ...]), output3)
+            batch = tensor_tree_map(lambda x: np.array(x), batch)
+            save_protein(batch, output1, output_dir, name, "direct_structure_prediction")
+            save_protein(batch, output3, output_dir, name, "indirect_structure_prediction")
 
     
 
@@ -235,6 +285,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "pdb_path", type=str,
+    )
+    parser.add_argument(
+        "--resume_from_ckpt_forward", type=str, default=None,
+        help="Path to model parameters."
     )
     parser.add_argument(
         "--resume_from_ckpt_backward", type=str, default=None,

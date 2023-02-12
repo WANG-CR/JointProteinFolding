@@ -1,0 +1,32 @@
+model:
+  inverse_evoformer_stack:
+    no_blocks: 24
+  residue_emb:
+    enabled: true
+    usage: replace
+  residue_attn:
+    enabled: true
+
+globals:
+  inv_c_m: 1024
+  inv_c_z: 128
+  inv_c_m_structure: 384
+  inv_c_z_structure: 128
+  c_m: 1024
+  c_z: 128
+  c_z_structure: 128
+  c_m_structure: 384
+  lm_name: esm2_t36_3B_UR50D
+
+data:
+  data_module:
+    data_loaders:
+      num_workers: 10
+
+optimizer:
+  lr: 0.008
+
+scheduler:
+  warmup_no_steps: 320
+  start_decay_after_n_steps: 3200
+  decay_every_n_steps: 320
