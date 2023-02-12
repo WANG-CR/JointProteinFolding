@@ -115,6 +115,33 @@ def output_to_pdb(output: T.Dict) -> T.List[str]:
         pdbs.append(to_pdb(pred))
     return pdbs
 
+def output_to_bb(output: T.Dict) -> T.List[str]:
+    """Returns the pbd (file) string from the model given the model output."""
+    # atom14_to_atom37 must be called first, as it fails on latest numpy if the
+    # input is a numpy array. It will work if the input is a torch tensor.
+    final_atom_positions = atom14_to_atom37(output["positions"][-1], output)
+    final_atom_positions = final_atom_positions.cpu()
+    output = {k: v.to("cpu") for k, v in output.items()}
+    final_atom_mask = output["atom37_atom_exists"]
+
+    coords = final_atom_positions
+    # print(f">>> cooords shape is {coords.shape}")
+    n_pos = residue_constants.atom_order["N"]
+    gt_coords_n = coords[..., n_pos, :].unsqueeze(-2) # [*, N, 1, 3]
+    ca_pos = residue_constants.atom_order["CA"]
+    gt_coords_ca = coords[..., ca_pos, :].unsqueeze(-2) # [*, N, 1, 3]
+    c_pos = residue_constants.atom_order["C"]
+    gt_coords_c = coords[..., c_pos, :].unsqueeze(-2) # [*, N, 1, 3]
+    o_pos = residue_constants.atom_order["O"]
+    gt_coords_o = coords[..., o_pos, :].unsqueeze(-2) # [*, N, 1, 3]
+    coords_feats = torch.cat((gt_coords_n, gt_coords_ca, gt_coords_c, gt_coords_o), dim=-2)
+    # print(f">>> bb cooords shape is {coords_feats.shape}")
+    return {"bb_coords": coords_feats, 
+            "final_atom_positions": coords,
+            "final_atom_mask": final_atom_mask,
+            }
+
+
 
 def collate_dense_tensors(
     samples: T.List[torch.Tensor], pad_v: float = 0

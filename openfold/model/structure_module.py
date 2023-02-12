@@ -562,7 +562,7 @@ class StructureModule(nn.Module):
         trans_scale_factor,
         epsilon,
         inf,
-        track_seq_states,
+        track_seq_states=False,
         **kwargs,
     ):
         """

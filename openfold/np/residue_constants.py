@@ -863,6 +863,12 @@ def ss_to_onehot(
 
     return one_hot_arr
 
+def aatype_to_sequence(aatype):
+    sequence = ""
+    for i in aatype:
+        sequence += restypes_with_x[i]
+    return sequence
+
 
 def sequence_to_onehot(
     sequence: str, mapping: Mapping[str, int], map_unknown_to_x: bool = False

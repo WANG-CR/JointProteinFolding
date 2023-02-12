@@ -31,6 +31,7 @@ class StructureModuleConfig:
     trans_scale_factor: int = 10
     epsilon: float = 1e-8
     inf: float = 1e5
+    track_seq_states: bool = False
 
 
 @dataclass
@@ -161,7 +162,7 @@ class FoldingTrunk(nn.Module):
         # where the chunk_size is the size of the chunks, so 128 would mean to parse 128-lengthed chunks.
         self.chunk_size = chunk_size
 
-    def forward(self, seq_feats, pair_feats, true_aa, residx, mask, no_recycles: T.Optional[int] = None, track_seq_states=False):
+    def forward(self, seq_feats, pair_feats, true_aa, residx, mask, no_recycles: T.Optional[int] = None):
         """
         Inputs:
           seq_feats:     B x L x C            tensor of sequence features
@@ -217,7 +218,6 @@ class FoldingTrunk(nn.Module):
                     self.trunk2sm_z(s_z),
                     true_aa,
                     mask.float(),
-                    track_seq_states = track_seq_states,
                 )
 
                 recycle_s = s_s

@@ -26,6 +26,7 @@ from openfold.model.esm.misc import (
     batch_encode_sequences,
     collate_dense_tensors,
     output_to_pdb,
+    output_to_bb,
 )
 
 
@@ -33,7 +34,8 @@ from openfold.model.esm.misc import (
 class ESMFoldConfig:
     trunk: T.Any = FoldingTrunkConfig()
     lddt_head_hid_dim: int = 128
-    lm: str = "esm2_t33_650M_UR50D"
+    lm: str = "esm2_t36_3B_UR50D"
+    # lm: str = "esm2_t33_650M_UR50D"
 
 def constructConfigFromYAML(config):
     assert config.model.structure_module.no_blocks == config.model.evoformer_stack.no_blocks
@@ -41,6 +43,7 @@ def constructConfigFromYAML(config):
         c_m = config.globals.c_m_structure,
         # c_s = config.globals.c_m_structure,
         c_z = config.globals.c_z_structure,
+        track_seq_states = config.globals.track_seq_states,
     )
     trunk = FoldingTrunkConfig(
         num_blocks=config.model.structure_module.no_blocks,
@@ -57,13 +60,13 @@ def constructConfigFromYAML(config):
     return ESMFoldConfig(trunk = trunk, lm=lm)
 
 class ESMFold(nn.Module):
-    def __init__(self, esmfold_config=None, using_fair=False, track_seq_states=False, **kwargs):
+    def __init__(self, esmfold_config=None, using_fair=False, **kwargs):
         super().__init__()
 
         self.cfg = esmfold_config if esmfold_config else ESMFoldConfig(**kwargs)
         cfg = self.cfg
         self.using_fair = using_fair
-        self.track_seq_states = track_seq_states
+        self.track_seq_states = False # need to modify
         self.distogram_bins = 64
         print(f"using fair 1")
         if using_fair:
@@ -398,7 +401,7 @@ class ESMFold(nn.Module):
 
         s_s_0 += self.embedding(aa)
 
-        structure: dict = self.trunk(s_s_0, s_z_0, aa, residx, mask, no_recycles=num_recycles, track_seq_states = self.track_seq_states)
+        structure: dict = self.trunk(s_s_0, s_z_0, aa, residx, mask, no_recycles=num_recycles)
         # Documenting what we expect:
         structure = {
             k: v
@@ -560,6 +563,10 @@ class ESMFold(nn.Module):
         """Returns the pbd (file) string from the model given the model output."""
         return output_to_pdb(output)
 
+    def output_to_bb(self, output: T.Dict) -> T.Dict:
+        """Returns the pbd (file) string from the model given the model output."""
+        return output_to_bb(output)
+
     def infer_pdbs(self, seqs: T.List[str], *args, **kwargs) -> T.List[str]:
         """Returns list of pdb (files) strings from the model given a list of input sequences."""
         output = self.infer(seqs, *args, **kwargs)
@@ -568,6 +575,16 @@ class ESMFold(nn.Module):
     def infer_pdb(self, sequence: str, *args, **kwargs) -> str:
         """Returns the pdb (file) string from the model given an input sequence."""
         return self.infer_pdbs([sequence], *args, **kwargs)[0]
+
+    # def infer_bbs(self, seqs: T.List[str], *args, **kwargs) -> T.List[str]:
+    #     """Returns list of pdb (files) strings from the model given a list of input sequences."""
+    #     output = self.infer(seqs, *args, **kwargs)
+    #     return self.output_to_bb(output)
+
+    def infer_bb(self, sequence: str, *args, **kwargs) -> T.Dict:
+        """Returns the pdb (file) string from the model given an input sequence."""
+        output = self.infer(sequence, *args, **kwargs)
+        return self.output_to_bb(output)
 
     def set_chunk_size(self, chunk_size: T.Optional[int]):
         # This parameter means the axial attention will be computed
