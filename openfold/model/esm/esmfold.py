@@ -52,7 +52,8 @@ def constructConfigFromYAML(config):
         sequence_head_width = config.model.evoformer_stack.c_hidden_seq_att,
         pairwise_head_width = config.model.evoformer_stack.c_hidden_pair_att,
         position_bins = config.model.input_embedder.relpos_k,
-        dropout = config.model.evoformer_stack.seq_dropout,
+        # dropout = config.model.evoformer_stack.seq_dropout,
+        dropout = 0,
         structure_module = structure_module,
         )
     lm = config.globals.lm_name
@@ -576,13 +577,14 @@ class ESMFold(nn.Module):
         """Returns the pdb (file) string from the model given an input sequence."""
         return self.infer_pdbs([sequence], *args, **kwargs)[0]
 
-    # def infer_bbs(self, seqs: T.List[str], *args, **kwargs) -> T.List[str]:
-    #     """Returns list of pdb (files) strings from the model given a list of input sequences."""
-    #     output = self.infer(seqs, *args, **kwargs)
-    #     return self.output_to_bb(output)
+    def infer_bbs(self, seqs: T.List[str], *args, **kwargs) -> T.List[str]:
+        """Returns list of pdb (files) strings from the model given a list of input sequences."""
+        output = self.infer(seqs, *args, **kwargs)
+        return self.output_to_bb(output)
 
     def infer_bb(self, sequence: str, *args, **kwargs) -> T.Dict:
         """Returns the pdb (file) string from the model given an input sequence."""
+        # return self.infer_bbs([sequence], *args, **kwargs)
         output = self.infer(sequence, *args, **kwargs)
         return self.output_to_bb(output)
 

@@ -115,7 +115,7 @@ def output_to_pdb(output: T.Dict) -> T.List[str]:
         pdbs.append(to_pdb(pred))
     return pdbs
 
-def output_to_bb(output: T.Dict) -> T.List[str]:
+def output_to_bb(output: T.Dict) -> T.Dict:
     """Returns the pbd (file) string from the model given the model output."""
     # atom14_to_atom37 must be called first, as it fails on latest numpy if the
     # input is a numpy array. It will work if the input is a torch tensor.
@@ -136,9 +136,15 @@ def output_to_bb(output: T.Dict) -> T.List[str]:
     gt_coords_o = coords[..., o_pos, :].unsqueeze(-2) # [*, N, 1, 3]
     coords_feats = torch.cat((gt_coords_n, gt_coords_ca, gt_coords_c, gt_coords_o), dim=-2)
     # print(f">>> bb cooords shape is {coords_feats.shape}")
+    # b_factors = np.zeros_like(final_atom_mask)
+    chain_index=output["chain_index"] if "chain_index" in output else None
     return {"bb_coords": coords_feats, 
-            "final_atom_positions": coords,
+            "final_atom_positions": final_atom_positions,
             "final_atom_mask": final_atom_mask,
+            "b_factors": output["plddt"],
+            "aatype": output["aatype"],
+            "residue_index": output["residue_index"] + 1,
+            "chain_index": chain_index,
             }
 
 
