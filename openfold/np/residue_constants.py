@@ -869,6 +869,14 @@ def aatype_to_sequence(aatype):
         sequence += restypes_with_x[i]
     return sequence
 
+def aatypeList_to_sequence(aatype):
+    if not isinstance(aatype, list):
+        aatype = [aatype]
+    sequences = []
+    for i in range(len(aatype)):
+        sequences.append(aatype_to_sequence(aatype[i]))
+    return sequences
+
 
 def sequence_to_onehot(
     sequence: str, mapping: Mapping[str, int], map_unknown_to_x: bool = False
