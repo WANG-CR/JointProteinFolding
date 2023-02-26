@@ -62,7 +62,7 @@ def model_config(
         # a global constant
         set_inf(c, 1e4)
     
-    if c.data.data_module.data_loaders.batch_size > 1:
+    if c.data.data_module.data_loaders.batch_size > 1 and c.data.eval.crop_size is None:
         # We assume the training crop_size is always bigger
         # than the sequence length during the validation.
         c.data.eval.crop_size = c.data.train.crop_size
