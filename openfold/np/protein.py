@@ -382,3 +382,27 @@ def from_prediction(
         chain_index=chain_index,
         b_factors=b_factors,
     )
+
+
+def from_esm_prediction(
+    result: ModelOutput,
+    b_factors: Optional[np.ndarray] = None
+) -> Protein:
+    if b_factors is None:
+        return Protein(
+            aatype=result['aatype'],
+            atom_positions=result['final_atom_positions'],
+            atom_mask=result['final_atom_mask'],
+            residue_index=result['residue_index'],
+            b_factors=result['b_factors'],
+            chain_index=result['chain_index'],
+        )
+    else:
+        return Protein(
+            aatype=result['aatype'],
+            atom_positions=result['final_atom_positions'],
+            atom_mask=result['final_atom_mask'],
+            residue_index=result['residue_index'],
+            b_factors=b_factors,
+            chain_index=result['chain_index'],
+        )

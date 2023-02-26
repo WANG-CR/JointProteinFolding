@@ -80,18 +80,37 @@ def main(args):
 
     if args.resume_from_ckpt_backward is not None:
         # Loading backward model'scheckpoint
-        sd = torch.load(args.resume_from_ckpt_backward, map_location=torch.device('cpu'))
-        logging.info("printing loaded state dict for model")
-        stat_dict_g = {k[len("model."):]:v for k,v in sd["state_dict"].items()}
-        stat_dict_m2s = {}
-        for k,v in stat_dict_g.items():
-            if k in ["evoformer.linear.weight", "evoformer.linear.bias"]:
-                stat_dict_m2s[k[len("evoformer.linear."):]] = v
-        g_model.load_state_dict(stat_dict_g, strict=False)
-        g_model.linear_m2s.load_state_dict(stat_dict_m2s)
-        g_model = g_model.eval()
-        logging.info("Successfully loaded backward model weights...")
-
+        if not args.is_joint_ckpt:
+            sd = torch.load(args.resume_from_ckpt_backward, map_location=torch.device('cpu'))
+            logging.info("printing loaded state dict for model")
+            stat_dict_g = {k[len("model."):]:v for k,v in sd["state_dict"].items()}
+            stat_dict_m2s = {}
+            for k,v in stat_dict_g.items():
+                if k in ["evoformer.linear.weight", "evoformer.linear.bias"]:
+                    stat_dict_m2s[k[len("evoformer.linear."):]] = v
+            g_model.load_state_dict(stat_dict_g, strict=False)
+            g_model.linear_m2s.load_state_dict(stat_dict_m2s)
+            g_model = g_model.eval()
+            logging.info("Successfully loaded backward model weights...")
+        elif args.is_joint_ckpt:
+            sd = torch.load(args.resume_from_ckpt_backward, map_location=torch.device('cpu'))
+            logging.info("printing loaded state dict for model")
+            stat_dict_g2 = {}
+            for k, v in sd["state_dict"].items():
+                if "g_model." in k:
+                    stat_dict_g2[k] = v
+            # stat_dict_g = {k[len("g_model."):]:v for k,v in sd["state_dict"].items()}
+            stat_dict_g = {k[len("g_model."):]:v for k,v in stat_dict_g2.items()}
+            # stat_dict_m2s = {}
+            # for k,v in stat_dict_g.items():
+            #     if k in ["evoformer.linear.weight", "evoformer.linear.bias"]:
+            #         stat_dict_m2s[k[len("evoformer.linear."):]] = v
+            g_model.load_state_dict(stat_dict_g)
+            # g_model.linear_m2s.load_state_dict(stat_dict_m2s)
+            g_model = g_model.eval()
+            g_model.requires_grad_(False)
+            logging.info("Successfully loaded backward model weights...")
+    
     print(f">>> printing backward model:")
     print(g_model)
 
@@ -123,8 +142,11 @@ def main(args):
     # list_mean_plddt = []
     list_aar = []
     list_ppl = []
+    num_treated = 0
     logging.info(f'predicting with {args.no_recycling_iters} recycling iterations...')
     for job in jobs:
+        num_treated += 1
+        logging.info(f">>> num_treated: {num_treated}") 
         f_path = os.path.basename(job)
         name = f_path[:args.name_length].lower()
 
@@ -221,7 +243,7 @@ def main(args):
 
             
 
-    logging.info(f">>>>>> final mean pplis {print_mean_metric(list_ppl)}")
+    logging.info(f">>>>>> final mean ppl is {print_mean_metric(list_ppl)}")
     logging.info(f">>>>>> final mean aar is {print_mean_metric(list_aar)}")
     # logging.info(f">>>>>> final mean gdt_ts is {print_mean_metric(list_gdt_ts)}")
     # logging.info(f">>>>>> final mean tm is {print_mean_metric(list_tm)}")
@@ -249,6 +271,10 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--is_antibody", type=bool_type, default=False,
+        help="training on antibody or not"
+    )
+    parser.add_argument(
+        "--is_joint_ckpt", type=bool_type, default=False,
         help="training on antibody or not"
     )
     parser.add_argument(

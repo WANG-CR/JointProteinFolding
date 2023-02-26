@@ -177,20 +177,8 @@ class AlphaFoldInverse(nn.Module):
         # Prep some features
         
         seq_mask = feats["seq_mask"][..., 0]
-        # logging.info(f'feats["coords"] size during iteration is {feats["coords"].shape}')
         pair_mask = seq_mask[..., None] * seq_mask[..., None, :]
-        # logging.info(f"pair_mask size during iteration is {pair_mask.shape}")
-        # # check_inf_nan(feats["coords"])
-        # logging.info(f'feats["target_feat"] size during iteration is {feats["target_feat"].shape}')
-        # logging.info(f'feats["residue_index"] size during iteration is {feats["residue_index"].shape}')
-        # logging.info(f'feats["aatype"] size during iteration is {feats["aatype"].shape}')
-        # seq_len = int(feats['seq_mask'][..., 0].sum())
-        # logging.info(f"seq mask size during iteration is {feats['seq_mask'][..., -1].shape}")
-        # logging.info(f"seq mask sum during iteration is {seq_len}")
-        # logging.info(f'feats["aatype"] during iteration is {feats["aatype"][:, seq_len-2:seq_len+3, 0]}')
-        # logging.info(f'feats["target_feat"] during iteration is {feats["target_feat"][:, seq_len-2:seq_len+3, :, 0]}')
-        # logging.info(f"coords shape is {feats['coords'].shape}")
-        # logging.info(f"coords is {feats['coords'][0, 0, ..., 0]}")
+
         ## Calculate contact
         ## [*, N, N]
         contact = None
@@ -381,6 +369,9 @@ class AlphaFoldInverse(nn.Module):
         ##### Grab some data about the input: Disabled now
 
         # Prep some features
+        logging.info(f">>> debug: coords_bb shape is {coords_bb.shape}")
+        logging.info(f">>> debug: seq mask shape is {feats['seq_mask'].shape}")
+        logging.info(f">>> debug: target feature shape is {feats['target_feat'].shape}")
         
         seq_mask = feats["seq_mask"][..., 0]
         # logging.info(f'feats["coords"] size during iteration is {feats["coords"].shape}')
@@ -394,9 +385,10 @@ class AlphaFoldInverse(nn.Module):
             coords_bb,    # B, N, 4, 3
             feats["seq_mask"][..., 0],  # B, N
         )
-        check_inf_nan(pair_rbf)
 
+        check_inf_nan(pair_rbf)
         # pair_rbf = _nan_to_num(pair_rbf)
+        
         # Initialize the seq and pair representations
         # m: [*, N, C_m]
         # z: [*, N, N, C_z]

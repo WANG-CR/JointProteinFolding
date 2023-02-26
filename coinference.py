@@ -55,6 +55,19 @@ def save_protein(batch, output, output_dir, name, postfix):
     with open(unrelaxed_output_path, 'w') as f:
         f.write(protein.to_pdb(unrelaxed_protein))
 
+def save_esm_protein(output, output_dir, name, postfix):
+    b_factors = np.zeros_like(output["final_atom_mask"])
+    unrelaxed_protein = protein.from_esm_prediction(
+        result=output,
+        b_factors=b_factors
+    )        
+    unrelaxed_output_path = os.path.join(
+        output_dir,
+        f"{name}_{postfix}.pdb"
+    )
+    with open(unrelaxed_output_path, 'w') as f:
+        f.write(protein.to_pdb(unrelaxed_protein))
+
 def compute_perplexity(gt_aatype_one_hot, pred_aatype_dist, loop_index):
     #pred_aatype_dist is a distribution
     #gt_aatype [*, Nres]
@@ -147,10 +160,10 @@ def main(args):
         g_model = g_model.eval()
         logging.info("Successfully loaded backward model weights...")
 
-    print(f">>> printing forward model:")
-    print(f_model)
-    print(f">>> printing backward model:")
-    print(g_model)
+    logging.info(f">>> printing forward model:")
+    # print(f_model)
+    logging.info(f">>> printing backward model:")
+    # print(g_model)
 
     logging.info(f">>> is using antibody: {args.is_antibody} ...")
     # Prepare data
@@ -165,15 +178,24 @@ def main(args):
     logging.info(f'got {len(jobs)} jobs...')
     # Get input 
     # metrics = []
-    # list_rmsd = []
-    # list_gdt_ts = []
+    list_rmsd = []
+    list_rmsd3 = []
+    list_aar = []
+    list_aar2 = []
+    n_aar = 0
+    n_rmsd = 0
+    n_jobs = len(jobs)
     # list_tm = []
     # list_mean_plddt = []
-    logging.info(f'predicting with {args.no_recycling_iters} recycling iterations...')
+    num_treated = 0 
     for job in jobs:
         f_path = os.path.basename(job)
         name = f_path[:args.name_length].lower()
-
+        
+        logging.info(f"#################")
+        logging.info(f">>> treating: {name}")
+        num_treated += 1
+        logging.info(f'predicting with {args.no_recycling_iters} recycling iterations...')
         # process pdb feature
         feature_dict = data_processor.process_pdb(
             pdb_path=job,
@@ -189,8 +211,8 @@ def main(args):
         }
         sequence1 = feature_dict["sequence"][0].decode("utf-8") 
         sequence_test = residue_constants.aatype_to_sequence(batch["aatype"][0, ..., -1])
-        print(f'>>>sequence is: {sequence1}')
-        print(f'>>>sequence test is: {sequence_test}')
+        # print(f'>>>original sequence is: {sequence1}')
+        # print(f'>>>sequence test is: {sequence_test}')
 
         ######## begin inference #########
         ######## model1 #########
@@ -198,7 +220,8 @@ def main(args):
             output1 = f_model.infer_bb(sequence1, num_recycles=3, cpu_only=True)
         bb_coords_1 = output1['bb_coords']
         all_coords_1 = output1['final_atom_positions']
-        print(f">>> output of infer_bb is {bb_coords_1.shape}")
+        # print(f">>> output of infer_bb is {bb_coords_1.shape}")
+        logging.info(f">>> sequence length is {bb_coords_1.shape[1]}")
 
         ######## model2 #########
         with torch.no_grad():
@@ -208,6 +231,7 @@ def main(args):
         final_pred_aatype_dist[..., -1] = -9999 # zero out UNK.
         sampled_seqs = final_pred_aatype_dist.argmax(dim=-1)    # greedy sampling
         sequence2 = residue_constants.aatype_to_sequence(sampled_seqs)
+        # print(f">>> generated sequence is {sequence2}")
 
         ######## model3 #########
         with torch.no_grad():
@@ -231,19 +255,25 @@ def main(args):
         ###### evaluation #######
         batch = tensor_tree_map(lambda x: x[0, ..., -1].cpu(), batch)
         gt_aatype = batch["aatype"]
-        ce = F.cross_entropy(final_pred_aatype_dist, gt_aatype)
-        ppl = ce.exp()
-        aars = sampled_seqs.eq(gt_aatype).float().mean()
-        print(f">>> ppl from predcited bb is {ppl}")
-        print(f">>> aars from predcited bb is {aars}")
-        print(f">>> sampled_seqs from predcited bb is: {sampled_seqs}")
 
         ce2 = F.cross_entropy(final_pred_aatype_dist2, gt_aatype)
         ppl2 = ce2.exp()
         aars2 = sampled_seqs2.eq(gt_aatype).float().mean()
-        print(f">>> ppl from native bb is {ppl2}")
-        print(f">>> aars from native bb is {aars2}")
-        print(f">>> sampled_seqs from native bb is: {sampled_seqs2}")
+        logging.info(f">>> ppl from native bb is {ppl2:.2f}")
+        logging.info(f">>> aars from native bb is {aars2:.2f}")
+        # print(f">>> sampled_seqs from native bb is: {sampled_seqs2}")
+
+        ce = F.cross_entropy(final_pred_aatype_dist, gt_aatype)
+        ppl = ce.exp()
+        aars = sampled_seqs.eq(gt_aatype).float().mean()
+        logging.info(f">>> ppl from predcited bb is {ppl:.2f}")
+        logging.info(f">>> aars from predcited bb is {aars:.2f}")
+        # print(f">>> sampled_seqs from predcited bb is: {sampled_seqs}")
+
+        list_aar.append(aars)
+        list_aar2.append(aars2)
+        if aars >= aars2:
+            n_aar += 1
 
         if not args.prediction_without_groundtruth:
             # align coordinates and compute rmsd_ca
@@ -256,30 +286,45 @@ def main(args):
             gt_coords_masked_ca = gt_coords_masked[..., ca_pos, :] # [*, N, 3]
             all_atom_mask_ca = all_atom_mask[..., ca_pos] # [*, N]
             
-            pred_coords1 = all_coords_1 # [*, N, 37, 3]
+            pred_coords1 = all_coords_1
+            # pred_coords1 = torch.from_numpy(all_coords_1) # [*, N, 37, 3]
             pred_coords_masked1 = pred_coords1 * all_atom_mask[..., None] # [*, N, 37, 3]
             pred_coords_masked_ca1 = pred_coords_masked1[..., ca_pos, :] # [*, N, 3]
             rmsd_ca1, gdt_ts_score1 = calculate_structure_score(gt_coords_masked_ca, pred_coords_masked_ca1, residue_mask, all_atom_mask_ca)
             # logging.info(f">>> residue mask is {residue_mask}")
-            print(f">>> rmsd_ca of direct prediction is {rmsd_ca1}")
-            print(f">>> gdt_ts of direct prediction is {gdt_ts_score1}")
+            logging.info(f">>> rmsd_ca of direct prediction is {rmsd_ca1:.2f}")
+            logging.info(f">>> gdt_ts of direct prediction is {gdt_ts_score1:.2f}")
 
-            pred_coords3 = all_coords_3 # [*, N, 37, 3]
+            # pred_coords3 = torch.from_numpy(all_coords_3) # [*, N, 37, 3]
+            pred_coords3 = all_coords_3
             pred_coords_masked3 = pred_coords3 * all_atom_mask[..., None] # [*, N, 37, 3]
             pred_coords_masked_ca3 = pred_coords_masked3[..., ca_pos, :] # [*, N, 3]
             rmsd_ca3, gdt_ts_score3 = calculate_structure_score(gt_coords_masked_ca, pred_coords_masked_ca3, residue_mask, all_atom_mask_ca)
             # logging.info(f">>> residue mask is {residue_mask}")
-            print(f">>> rmsd_ca of indirect prediction is {rmsd_ca3}")
-            print(f">>> gdt_ts of indirect prediction is {gdt_ts_score3}")
+            logging.info(f">>> rmsd_ca of indirect prediction is {rmsd_ca3:.2f}")
+            logging.info(f">>> gdt_ts of indirect prediction is {gdt_ts_score3:.2f}")
 
+            list_rmsd.append(rmsd_ca1)
+            list_rmsd3.append(rmsd_ca3)
+            if rmsd_ca3 <= rmsd_ca1:
+                n_rmsd += 1
+                
             ## protein object saving & relaxation
             output1 = tensor_tree_map(lambda x: np.array(x[0, ...]), output1)
             output3 = tensor_tree_map(lambda x: np.array(x[0, ...]), output3)
             batch = tensor_tree_map(lambda x: np.array(x), batch)
-            save_protein(batch, output1, output_dir, name, "direct_structure_prediction")
-            save_protein(batch, output3, output_dir, name, "indirect_structure_prediction")
-
+            # save_esm_protein(output1, output_dir, name, "direct_structure_prediction")
+            # save_esm_protein(output3, output_dir, name, "indirect_structure_prediction")
+            save_esm_protein(output1, output_dir, name, "direct")
+            save_esm_protein(output3, output_dir, name, "indirect")
     
+    logging.info(f">>> average aar from native bb is {print_mean_metric(list_aar2):.2f}")
+    logging.info(f">>> average aar from predcited bb is {print_mean_metric(list_aar):.2f}")
+    logging.info(f">>> average rmsd_ca from native sequence is {print_mean_metric(list_rmsd):.2f}")
+    logging.info(f">>> average rmsd_ca from predicted sequence is {print_mean_metric(list_rmsd3):.2f}")
+    logging.info(f">>> in total, we test on {n_jobs} samples")
+    logging.info(f">>> {n_aar} samples, predicted backbone's aar is larger than native bb's aar")
+    logging.info(f">>> {n_rmsd} samples, predicted sequence's rmsd is smaller than native sequence's rmsd")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
