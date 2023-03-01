@@ -487,3 +487,87 @@ class RecyclingEmbedder(nn.Module):
         z_update = d + self.layer_norm_z(z)
 
         return m_update, z_update
+
+
+class InverseRecyclingEmbedder(nn.Module):
+    """
+    Embeds the output of an iteration of the model for recycling.
+
+    Implements Algorithm 32.
+    """
+
+    def __init__(
+        self,
+        c_m: int,
+        c_z: int,
+        min_bin: float,
+        max_bin: float,
+        no_bins: int,
+        inf: float = 1e8,
+        track_seq_states: bool=False,
+        **kwargs,
+    ):
+        """
+        Args:
+            c_m:
+                Seq embedding dimension
+            c_z:
+                Pair embedding channel dimension
+            min_bin:
+                Smallest distogram bin (Angstroms)
+            max_bin:
+                Largest distogram bin (Angstroms)
+            no_bins:
+                Number of distogram bins
+        """
+        super(RecyclingEmbedder, self).__init__()
+
+        self.c_m = c_m
+        self.c_z = c_z
+        self.min_bin = min_bin
+        self.max_bin = max_bin
+        self.no_bins = no_bins
+        self.inf = inf
+        self.track_seq_states = track_seq_states
+
+        self.linear = Linear(self.no_bins, self.c_z)
+        self.layer_norm_m = LayerNorm(self.c_m)
+        self.layer_norm_z = LayerNorm(self.c_z)
+
+        # disabling final aatype distribution and seqs_prev during baseline test
+        if self.track_seq_states:
+            self.linear_seqs = Linear(21, self.c_m)
+            self.layer_norm_seqs = LayerNorm(self.c_m)
+
+    def forward(
+        self,
+        m: torch.Tensor,
+        z: torch.Tensor,
+        seqs: torch.Tensor, 
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Args:
+            m:
+                Sequence embedding. [*, N_res, C_m]
+            z:
+                [*, N_res, N_res, C_z] pair embedding
+            seqs:
+                [*, N_res, 3] generated sequences after linear projection
+        Returns:
+            m:
+                [*, N_res, C_m] MSA embedding update
+            z:
+                [*, N_res, N_res, C_z] pair embedding update
+        """
+
+        # [*, N, C_m]
+        # disabling final aatype distribution and seqs_prev during baseline test
+        if self.track_seq_states:
+            m_update = self.layer_norm_m(m) + self.layer_norm_seqs(self.linear_seqs(seqs))
+        else:
+            m_update = self.layer_norm_m(m)
+
+        # [*, N, N, C_z]
+        z_update = self.layer_norm_z(z)
+
+        return m_update, z_update
