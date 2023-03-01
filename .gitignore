@@ -149,3 +149,4 @@ prepjob.*
 *.out
 prolog_slurmd.*
 *unrelaxed.pdb
+*.pdb
