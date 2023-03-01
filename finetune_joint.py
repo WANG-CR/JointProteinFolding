@@ -363,15 +363,15 @@ def main(args):
     parallel_data_module.setup()
 
     # process fasta file
-    sequence_data_module = OpenFoldDataModule(
-        config=config.data, 
-        batch_seed=args.seed,
-        train_data_dir=args.fasta_dir,
-        train_epoch_len=args.train_epoch_len,
-        is_antibody=args.is_antibody,
-    )
-    sequence_data_module.prepare_data()
-    sequence_data_module.setup()
+    # sequence_data_module = OpenFoldDataModule(
+    #     config=config.data, 
+    #     batch_seed=args.seed,
+    #     train_data_dir=args.fasta_dir,
+    #     train_epoch_len=args.train_epoch_len,
+    #     is_antibody=args.is_antibody,
+    # )
+    # sequence_data_module.prepare_data()
+    # sequence_data_module.setup()
 
     callbacks = []
     if(args.checkpoint_every_epoch):

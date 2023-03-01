@@ -54,10 +54,8 @@ class OpenFoldWrapper(pl.LightningModule):
     def forward_joint(self, batch, sequence):
         # self.f_model.eval()
         with torch.no_grad():
-            f_outputs = self.f_model.infer_bbs(sequence, num_recycles=3, cpu_only=True)
-        # logging.info(f">>> debug: input sequence shape is {sequence.shape}")
-        logging.info(f">>> debug: predicted coords_bb shape is {f_outputs['bb_coords'].shape}")
-        logging.info(f">>> debug: ground_truth aatype shape is {f_outputs['aatype'].shape}")
+            f_outputs = self.f_model.infer_bb(sequence, num_recycles=3, cpu_only=True)
+
         bb_feats = f_outputs['bb_coords']
         h_outputs = self.g_model.forward_h(batch, bb_feats)
         return h_outputs
@@ -93,24 +91,16 @@ class OpenFoldWrapper(pl.LightningModule):
             )
 
     def training_step(self, batch, batch_idx):
+        if(self.g_ema.device != batch["aatype"].device):
+            self.g_ema.to(batch["aatype"].device)
 
-        # sequence = residue_constants.aatype_to_sequence(batch["aatype"][0, ..., -1])
-        # logging.info(f">>> debug: input sequence 1 is {batch['aatype'][0, ..., -1]}")
-        # logging.info(f">>> debug: input sequence 2 is {batch['aatype'][1, ..., -1]}")
-        sequence = residue_constants.aatypeList_to_sequence(batch["aatype"][..., -1].tolist())
+        sequence = residue_constants.aatype_to_sequence(batch["aatype"][0, ..., -1])
         h_outputs = self.forward_joint(batch, sequence)
         batch = tensor_tree_map(lambda t: t[..., -1], batch)
         logits_h = h_outputs["sm"]["seqs_logits"][-1]
         aatype = batch["aatype"]
         masked_target = aatype.masked_select(batch["seq_mask"].to(torch.bool)).view(-1)    # Nl
         masked_pred_h = logits_h.masked_select(batch["seq_mask"].unsqueeze(-1).to(torch.bool)).view(-1, residue_constants.restype_num + 1) # Nl x 21
-        
-        logits = logits_h.clone().detach()
-        logits[..., -1] = -9999 # zero out UNK.
-        sampled_seqs = logits.argmax(dim=-1)
-        # logging.info(f">>> samples sequence shape is {sampled_seqs.shape}")
-        masked_sampled_seqs = sampled_seqs.masked_select(batch["seq_mask"].to(torch.bool)).view(-1)
-        aars = masked_sampled_seqs.eq(masked_target).float().mean()
 
         ce_h = F.cross_entropy(masked_pred_h, masked_target.long())
         ppl_h = ce_h.exp()
@@ -118,10 +108,8 @@ class OpenFoldWrapper(pl.LightningModule):
         # Log it
         self.log('train/h_loss', ce_h, on_step=True, on_epoch=False, prog_bar=False, logger=True)
         self.log('train/h_PPL', ppl_h, on_step=True, on_epoch=False, prog_bar=True, logger=True)
-        self.log('train/h_aar', aars, on_step=True, on_epoch=False, prog_bar=True, logger=True)
         self.log('train/h_loss_epoch', ce_h, on_step=False, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
         self.log('train/h_PPL_epoch', ppl_h, on_step=False, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
-        self.log('train/h_aar_epoch', aars, on_step=False, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
         h_loss = ce_h + 0. * dummy_loss_h
         return h_loss
 
@@ -130,11 +118,18 @@ class OpenFoldWrapper(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         # At the start of validation, load the EMA weights
+        if(self.cached_weights is None):
+            # model.state_dict() contains references to model weights rather
+            # than copies. Therefore, we need to clone them before calling 
+            # load_state_dict().
+            clone_param = lambda t: t.detach().clone()
+            self.g_cached_weights = tensor_tree_map(clone_param, self.g_model.state_dict())
+            self.g_model.load_state_dict(self.g_ema.state_dict()["params"])
+
         # Run the model
         # f_outputs, g_outputs = self(batch)
         g_outputs = self.g_model(batch)
-        # sequence = residue_constants.aatype_to_sequence(batch["aatype"][0, ..., -1])
-        sequence = residue_constants.aatypeList_to_sequence(batch["aatype"][..., -1].tolist())
+        sequence = residue_constants.aatype_to_sequence(batch["aatype"][0, ..., -1])
         h_outputs = self.forward_joint(batch, sequence)
         batch = tensor_tree_map(lambda t: t[..., -1], batch)
 
@@ -185,6 +180,11 @@ class OpenFoldWrapper(pl.LightningModule):
                 on_step=False, on_epoch=True, logger=True, sync_dist=True
             )
 
+        
+    def validation_epoch_end(self, _):
+        # Restore the model weights to normal
+        self.g_model.load_state_dict(self.g_cached_weights)
+        self.g_cached_weights = None
 
     def _compute_validation_metrics(self, 
         batch, 
@@ -274,7 +274,7 @@ class OpenFoldWrapper(pl.LightningModule):
 def main(args):
     if(args.seed is not None):
         seed_everything(args.seed) 
-    logging.info(f"GPU availability: {torch.cuda.is_available()}")
+
     logging.info(f"args.is_antibody is {args.is_antibody}")
     config = model_config(
         name=args.config_preset,
@@ -286,7 +286,7 @@ def main(args):
 
     logging.info(f"args.resume_model_weights_only is {args.resume_model_weights_only}")
     logging.info(f"args.resume_from_ckpt_forward is {args.resume_from_ckpt_forward}")
-    logging.info(f"args.resume_from_ckpt_backward is {args.resume_from_ckpt_backward}")
+    logging.info(f"args.resume_from_ckpt_backward is {args.resume_from_ckpt_forward}")
     if(args.resume_model_weights_only):
         assert (args.resume_from_ckpt_forward is not None) or (args.resume_from_ckpt_backward is not None)
 
@@ -321,15 +321,15 @@ def main(args):
     parallel_data_module.setup()
 
     # process fasta file
-    # sequence_data_module = OpenFoldDataModule(
-    #     config=config.data, 
-    #     batch_seed=args.seed,
-    #     train_data_dir=args.fasta_dir,
-    #     train_epoch_len=args.train_epoch_len,
-    #     is_antibody=args.is_antibody,
-    # )
-    # sequence_data_module.prepare_data()
-    # sequence_data_module.setup()
+    sequence_data_module = OpenFoldDataModule(
+        config=config.data, 
+        batch_seed=args.seed,
+        train_data_dir=args.fasta_dir,
+        train_epoch_len=args.train_epoch_len,
+        is_antibody=args.is_antibody,
+    )
+    sequence_data_module.prepare_data()
+    sequence_data_module.setup()
 
     callbacks = []
     if(args.checkpoint_every_epoch):
@@ -340,7 +340,7 @@ def main(args):
             mode="min",
             every_n_epochs=1,
             save_last=False,
-            save_top_k=10,
+            save_top_k=2,
         )
         callbacks.append(mc)
 
@@ -403,10 +403,9 @@ def main(args):
         ckpt_path = None
     else:
         ckpt_path = args.resume_from_ckpt
-        print(f">>> full training process is retrieved")
 
     # multi data module training
-    train_dataloader=parallel_data_module.train_dataloader()
+    train_dataloader=sequence_data_module.train_dataloader()
     trainer.fit(
         model_module, 
         train_dataloaders=train_dataloader,
@@ -551,14 +550,6 @@ if __name__ == "__main__":
     parser.set_defaults(
         num_sanity_val_steps=0,
     )
-
-    # args = parser.parse_args()
-    # for k, v in vars(args).items():
-    #     logging.info(f"key: {k}")
-    #     logging.info(f"value: {v}")
-    #     logging.info(f"----------")
-    # logging.info(f"args.resume_model_weights_only is {args.resume_model_weights_only}")
-    # logging.info(f"args.resume_model_weights_only is {args.resume_model_weights_only}")
 
     # Remove some buggy/redundant arguments introduced by the Trainer
     remove_arguments(

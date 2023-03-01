@@ -26,7 +26,6 @@ from openfold.utils.superimposition import superimpose
 from openfold.utils.tensor_utils import tensor_tree_map
 from openfold.utils.validation_metrics import gdt_ts, gdt_ha
 from openfold.utils.zero_to_fp32 import get_fp32_state_dict_from_zero_checkpoint
-from openfold.model.esm.esmfold import ESMFold, ESMFoldConfig, constructConfigFromYAML
 import debugger
 
 
@@ -34,33 +33,39 @@ class OpenFoldWrapper(pl.LightningModule):
     def __init__(self, config):
         super(OpenFoldWrapper, self).__init__()
         self.config = config
-        model_data = torch.hub.load_state_dict_from_url("https://dl.fbaipublicfiles.com/fair-esm/models/esmfold_3B_v1.pt", progress=False, map_location="cpu")
-        cfg = constructConfigFromYAML(config)
-        model_state = model_data["model"]
-        self.f_model = ESMFold(esmfold_config=cfg, using_fair=True)
-        self.f_model.load_state_dict(model_state, strict=False)
-        self.f_model.requires_grad_(False)
+        self.f_model = AlphaFold(config)
         self.g_model = AlphaFoldInverse(config)
+        self.f_loss = AlphaFoldLoss(config.loss)
         self.g_loss = InverseLoss(config.loss)
+        self.f_ema = ExponentialMovingAverage(
+            model=self.f_model, decay=config.ema.decay
+        )
         self.g_ema = ExponentialMovingAverage(
             model=self.g_model, decay=config.ema.decay
         )
 
+        # self.plddt_regularized = self.config
         self.cached_weights = None
 
     def forward(self, batch):
         return self.f_model(batch), self.g_model(batch)
 
-    def forward_joint(self, batch, sequence):
-        # self.f_model.eval()
-        with torch.no_grad():
-            f_outputs = self.f_model.infer_bbs(sequence, num_recycles=3, cpu_only=True)
-        # logging.info(f">>> debug: input sequence shape is {sequence.shape}")
-        logging.info(f">>> debug: predicted coords_bb shape is {f_outputs['bb_coords'].shape}")
-        logging.info(f">>> debug: ground_truth aatype shape is {f_outputs['aatype'].shape}")
-        bb_feats = f_outputs['bb_coords']
-        h_outputs = self.g_model.forward_h(batch, bb_feats)
-        return h_outputs
+    def forward_joint(self, batch):
+        f_outputs = self.f_model(batch)
+        # we should consider the mask
+        coords = f_outputs["final_atom_positions"] # [*, N, 37, 3]
+        n_pos = residue_constants.atom_order["N"]
+        gt_coords_n = coords[..., n_pos, :].unsqueeze(-2) # [*, N, 1, 3]
+        ca_pos = residue_constants.atom_order["CA"]
+        gt_coords_ca = coords[..., ca_pos, :].unsqueeze(-2) # [*, N, 3]
+        c_pos = residue_constants.atom_order["C"]
+        gt_coords_c = coords[..., c_pos, :].unsqueeze(-2) # [*, N, 3]
+        o_pos = residue_constants.atom_order["O"]
+        gt_coords_o = coords[..., o_pos, :].unsqueeze(-2) # [*, N, 3]
+        coords_feats = torch.cat((gt_coords_n, gt_coords_ca, gt_coords_c, gt_coords_o), dim=-2)
+
+        h_outputs = self.g_model.forward_h(batch, coords_feats)
+        return f_outputs, h_outputs
 
     def _log(self, loss_breakdown, batch, outputs, train=True):
         phase = "train" if train else "val"
@@ -93,24 +98,35 @@ class OpenFoldWrapper(pl.LightningModule):
             )
 
     def training_step(self, batch, batch_idx):
+        if(self.f_ema.device != batch["b"]["aatype"].device):
+            self.f_ema.to(batch["b"]["aatype"].device)
+            self.g_ema.to(batch["b"]["aatype"].device)
 
-        # sequence = residue_constants.aatype_to_sequence(batch["aatype"][0, ..., -1])
-        # logging.info(f">>> debug: input sequence 1 is {batch['aatype'][0, ..., -1]}")
-        # logging.info(f">>> debug: input sequence 2 is {batch['aatype'][1, ..., -1]}")
-        sequence = residue_constants.aatypeList_to_sequence(batch["aatype"][..., -1].tolist())
-        h_outputs = self.forward_joint(batch, sequence)
-        batch = tensor_tree_map(lambda t: t[..., -1], batch)
-        logits_h = h_outputs["sm"]["seqs_logits"][-1]
-        aatype = batch["aatype"]
-        masked_target = aatype.masked_select(batch["seq_mask"].to(torch.bool)).view(-1)    # Nl
-        masked_pred_h = logits_h.masked_select(batch["seq_mask"].unsqueeze(-1).to(torch.bool)).view(-1, residue_constants.restype_num + 1) # Nl x 21
         
-        logits = logits_h.clone().detach()
-        logits[..., -1] = -9999 # zero out UNK.
-        sampled_seqs = logits.argmax(dim=-1)
-        # logging.info(f">>> samples sequence shape is {sampled_seqs.shape}")
-        masked_sampled_seqs = sampled_seqs.masked_select(batch["seq_mask"].to(torch.bool)).view(-1)
-        aars = masked_sampled_seqs.eq(masked_target).float().mean()
+        f_outputs, h_outputs = self.forward_joint(batch["b"])
+        plddt = f_outputs["plddt"][-1].mean()
+        plddt_loss = -plddt/100 + 1.0
+        
+        log_plddt = plddt.detach()
+        self.log('train/regu_plddt_score', log_plddt, on_step=False, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
+        self.log('train/regu_plddt_loss_epoch', plddt_loss, on_step=False, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
+
+        # use fake loss, to avoid non-used parameters
+        # these parameters will cause backpropagation error during DDP
+        logits=f_outputs["sm"]["seqs_logits"]
+        # [8, 1, 256, 21]
+        distogram = f_outputs["distogram_logits"]
+        # [1, 256, 256, 64]
+        logits_loss = logits.sum()
+        distogram_loss = distogram.sum()
+
+        batch_b = tensor_tree_map(lambda t: t[..., -1], batch["b"])
+        # Compute h loss
+        logits_h = h_outputs["sm"]["seqs_logits"][-1]
+        aatype = batch_b["aatype"]
+        masked_target = aatype.masked_select(batch_b["seq_mask"].to(torch.bool)).view(-1)    # Nl
+
+        masked_pred_h = logits_h.masked_select(batch_b["seq_mask"].unsqueeze(-1).to(torch.bool)).view(-1, residue_constants.restype_num + 1) # Nl x 21
 
         ce_h = F.cross_entropy(masked_pred_h, masked_target.long())
         ppl_h = ce_h.exp()
@@ -118,31 +134,42 @@ class OpenFoldWrapper(pl.LightningModule):
         # Log it
         self.log('train/h_loss', ce_h, on_step=True, on_epoch=False, prog_bar=False, logger=True)
         self.log('train/h_PPL', ppl_h, on_step=True, on_epoch=False, prog_bar=True, logger=True)
-        self.log('train/h_aar', aars, on_step=True, on_epoch=False, prog_bar=True, logger=True)
         self.log('train/h_loss_epoch', ce_h, on_step=False, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
         self.log('train/h_PPL_epoch', ppl_h, on_step=False, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
-        self.log('train/h_aar_epoch', aars, on_step=False, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
-        h_loss = ce_h + 0. * dummy_loss_h
+        h_loss = ce_h + 0. * dummy_loss_h + 0. * plddt_loss + 0. * logits_loss + 0. * distogram_loss
         return h_loss
 
+
     def on_before_zero_grad(self, *args, **kwargs):
+        self.f_ema.update(self.f_model)
         self.g_ema.update(self.g_model)
 
     def validation_step(self, batch, batch_idx):
         # At the start of validation, load the EMA weights
+        if(self.cached_weights is None):
+            # model.state_dict() contains references to model weights rather
+            # than copies. Therefore, we need to clone them before calling 
+            # load_state_dict().
+            clone_param = lambda t: t.detach().clone()
+            self.f_cached_weights = tensor_tree_map(clone_param, self.f_model.state_dict())
+            self.f_model.load_state_dict(self.f_ema.state_dict()["params"])
+            self.g_cached_weights = tensor_tree_map(clone_param, self.g_model.state_dict())
+            self.g_model.load_state_dict(self.g_ema.state_dict()["params"])
+
         # Run the model
-        # f_outputs, g_outputs = self(batch)
-        g_outputs = self.g_model(batch)
-        # sequence = residue_constants.aatype_to_sequence(batch["aatype"][0, ..., -1])
-        sequence = residue_constants.aatypeList_to_sequence(batch["aatype"][..., -1].tolist())
-        h_outputs = self.forward_joint(batch, sequence)
+        f_outputs, g_outputs = self(batch)
+        _, h_outputs = self.forward_joint(batch)
         batch = tensor_tree_map(lambda t: t[..., -1], batch)
 
-        # batch["use_clamped_fape"] = 0.
-        # f_loss, f_loss_breakdown = self.f_loss(
-        #     f_outputs, batch, _return_breakdown=True
-        # )
-        # self._log(f_loss_breakdown, batch, f_outputs, train=False)
+        # plddt = f_outputs["plddt"][-1].mean()
+        # self.log('val/regu_plddt_score', plddt, on_step=False, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+
+        # Compute loss and other metrics
+        batch["use_clamped_fape"] = 0.
+        f_loss, f_loss_breakdown = self.f_loss(
+            f_outputs, batch, _return_breakdown=True
+        )
+        self._log(f_loss_breakdown, batch, f_outputs, train=False)
 
         # compute g loss
         logits = g_outputs["sm"]["seqs_logits"][-1]
@@ -158,14 +185,17 @@ class OpenFoldWrapper(pl.LightningModule):
         masked_sampled_seqs = sampled_seqs.masked_select(batch["seq_mask"].to(torch.bool)).view(-1) # N x Nl
         aars = masked_sampled_seqs.eq(masked_target).float().mean()
 
-        self.log('val/inverse_loss', ce, on_step=False, on_epoch=True, prog_bar=False, logger=False, sync_dist=True)
-        self.log('val/inverse_PPL', ppl, on_step=False, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)    # show
-        self.log('val/inverse_AAR', aars, on_step=False, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)  
+        self.log('val/g_loss', ce, on_step=False, on_epoch=True, prog_bar=False, logger=False, sync_dist=True)
+        self.log('val/g_PPL', ppl, on_step=False, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)    # show
+        self.log('val/g_AAR', aars, on_step=False, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)  
 
 
-        # Compute h loss
+        # # Compute h loss
+        # 
         logits_h = h_outputs["sm"]["seqs_logits"][-1]
+
         masked_pred_h = logits_h.masked_select(batch["seq_mask"].unsqueeze(-1).to(torch.bool)).view(-1, residue_constants.restype_num + 1) # Nl x 21
+
         ce_h = F.cross_entropy(masked_pred_h, masked_target)
         ppl_h = ce_h.exp()
         logits_h[..., -1] = -9999 # zero out UNK.
@@ -174,17 +204,25 @@ class OpenFoldWrapper(pl.LightningModule):
         aars_h = masked_sampled_seqs_h.eq(masked_target).float().mean()
 
         # Log it
-        self.log('val/reconstruction_loss', ce_h, on_step=False, on_epoch=True, prog_bar=False, logger=False, sync_dist=True)
-        self.log('val/reconstruction_PPL', ppl_h, on_step=False, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)    # show
-        self.log('val/reconstruction_AAR', aars_h, on_step=False, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)  
+        self.log('val/h_loss', ce_h, on_step=False, on_epoch=True, prog_bar=False, logger=False, sync_dist=True)
+        self.log('val/h_PPL', ppl_h, on_step=False, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)    # show
+        self.log('val/h_AAR', aars_h, on_step=False, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)  
 
-        loss = ce
-        self.log(
-                f"val/loss", 
-                loss, 
-                on_step=False, on_epoch=True, logger=True, sync_dist=True
-            )
+        # loss = ce + f_loss
+        # self.log(
+        #         f"val/loss", 
+        #         loss, 
+        #         on_step=False, on_epoch=True, logger=True, sync_dist=True
+        #     )
 
+        
+    def validation_epoch_end(self, _):
+        # Restore the model weights to normal
+        self.f_model.load_state_dict(self.f_cached_weights)
+        self.f_cached_weights = None
+
+        self.g_model.load_state_dict(self.g_cached_weights)
+        self.g_cached_weights = None
 
     def _compute_validation_metrics(self, 
         batch, 
@@ -243,7 +281,7 @@ class OpenFoldWrapper(pl.LightningModule):
         scheduler_config = self.config.scheduler
         
         optimizer = torch.optim.Adam(
-            [{"params":self.g_model.parameters()}],
+            [{"params":self.f_model.parameters()},{"params":self.g_model.parameters()}],
             lr=optim_config.lr,
             eps=optim_config.eps,
             weight_decay=1e-6,
@@ -265,16 +303,18 @@ class OpenFoldWrapper(pl.LightningModule):
         }
 
     def on_load_checkpoint(self, checkpoint):
+        self.f_ema.load_state_dict(checkpoint["f_ema"])
         self.g_ema.load_state_dict(checkpoint["g_ema"])
 
     def on_save_checkpoint(self, checkpoint):
+        checkpoint["f_ema"] = self.f_ema.state_dict()
         checkpoint["g_ema"] = self.g_ema.state_dict()
 
 
 def main(args):
     if(args.seed is not None):
         seed_everything(args.seed) 
-    logging.info(f"GPU availability: {torch.cuda.is_available()}")
+
     logging.info(f"args.is_antibody is {args.is_antibody}")
     config = model_config(
         name=args.config_preset,
@@ -283,53 +323,55 @@ def main(args):
         low_prec=(args.precision == 16),
     )
     model_module = OpenFoldWrapper(config)
+    # if(args.resume_from_ckpt and args.resume_model_weights_only):
+    #     sd = get_fp32_state_dict_from_zero_checkpoint(args.resume_from_ckpt)
+    #     sd = {k[len("module."):]:v for k,v in sd.items()}
+    #     model_module.load_state_dict(sd)
+    #     logging.info("Successfully loaded model weights...")
 
     logging.info(f"args.resume_model_weights_only is {args.resume_model_weights_only}")
-    logging.info(f"args.resume_from_ckpt_forward is {args.resume_from_ckpt_forward}")
-    logging.info(f"args.resume_from_ckpt_backward is {args.resume_from_ckpt_backward}")
+    logging.info(f"args.resume_from_ckpt_f is {args.resume_from_ckpt_f}")
+    logging.info(f"args.resume_from_ckpt_g is {args.resume_from_ckpt_g}")
     if(args.resume_model_weights_only):
-        assert (args.resume_from_ckpt_forward is not None) or (args.resume_from_ckpt_backward is not None)
+        assert (args.resume_from_ckpt_f is not None) or (args.resume_from_ckpt_g is not None)
 
-        if args.resume_from_ckpt_forward is not None:
-            sd = torch.load(args.resume_from_ckpt_forward, map_location=torch.device('cpu'))
+        if args.resume_from_ckpt_f is not None:
+            sd = torch.load(args.resume_from_ckpt_f, map_location=torch.device('cpu'))
             logging.info("printing loaded state dict for model_f")
             stat_dict_f = {k[len("model."):]:v for k,v in sd["state_dict"].items()}
             ema_f = {k:v for k,v in sd["ema"].items()}
             model_module.f_model.load_state_dict(stat_dict_f)
+            model_module.f_ema.load_state_dict(ema_f)
             logging.info("Successfully loaded model_f weights...")
 
-        if args.resume_from_ckpt_backward is not None:
-            sd = torch.load(args.resume_from_ckpt_backward, map_location=torch.device('cpu'))
-            logging.info("loading state dict for backward model")
+        if args.resume_from_ckpt_g is not None:
+            sd = torch.load(args.resume_from_ckpt_g, map_location=torch.device('cpu'))
+            logging.info("printing loaded state dict for model_f")
             stat_dict_g = {k[len("model."):]:v for k,v in sd["state_dict"].items()}
-            stat_dict_m2s = {}
-            for k,v in stat_dict_g.items():
-                if k in ["evoformer.linear.weight", "evoformer.linear.bias"]:
-                    stat_dict_m2s[k[len("evoformer.linear."):]] = v
-            model_module.g_model.load_state_dict(stat_dict_g, strict=False)
-            model_module.g_model.linear_m2s.load_state_dict(stat_dict_m2s)
-            model_module.g_model.eval()
-            logging.info("Successfully loaded backward model weights...")
+            ema_g = {k:v for k,v in sd["ema"].items()}
+            model_module.g_model.load_state_dict(stat_dict_g)
+            model_module.g_ema.load_state_dict(ema_g)
+            logging.info("Successfully loaded model_g weights...")
 
-    parallel_data_module = OpenFoldDataModule(
-        config=config.data, 
-        batch_seed=args.seed,
-        **vars(args)
-    )
-
-    parallel_data_module.prepare_data()
-    parallel_data_module.setup()
-
-    # process fasta file
-    # sequence_data_module = OpenFoldDataModule(
+    # parallel_data_module = OpenFoldDataModule(
     #     config=config.data, 
     #     batch_seed=args.seed,
-    #     train_data_dir=args.fasta_dir,
-    #     train_epoch_len=args.train_epoch_len,
-    #     is_antibody=args.is_antibody,
+    #     **vars(args)
     # )
-    # sequence_data_module.prepare_data()
-    # sequence_data_module.setup()
+
+    # parallel_data_module.prepare_data()
+    # parallel_data_module.setup()
+
+    # process fasta file
+    sequence_data_module = OpenFoldDataModule(
+        config=config.data, 
+        batch_seed=args.seed,
+        train_data_dir=args.fasta_dir,
+        train_epoch_len=args.train_epoch_len,
+        is_antibody=args.is_antibody,
+    )
+    sequence_data_module.prepare_data()
+    sequence_data_module.setup()
 
     callbacks = []
     if(args.checkpoint_every_epoch):
@@ -340,7 +382,7 @@ def main(args):
             mode="min",
             every_n_epochs=1,
             save_last=False,
-            save_top_k=10,
+            save_top_k=30,
         )
         callbacks.append(mc)
 
@@ -386,7 +428,7 @@ def main(args):
             wdb_logger.experiment.save("openfold/config.py")
             if args.yaml_config_preset is not None:
                 wdb_logger.experiment.save(args.yaml_config_preset)
-    elif (args.gpus is not None and args.gpus > 1) or (args.devices is not None and args.devices >1) or args.num_nodes > 1:
+    elif (args.gpus is not None and args.gpus > 1) or args.num_nodes > 1:
         strategy = DDPPlugin(find_unused_parameters=False)
     else:
         strategy = None
@@ -403,10 +445,9 @@ def main(args):
         ckpt_path = None
     else:
         ckpt_path = args.resume_from_ckpt
-        print(f">>> full training process is retrieved")
 
     # multi data module training
-    train_dataloader=parallel_data_module.train_dataloader()
+    train_dataloader={"a": parallel_data_module.train_dataloader(), "b": sequence_data_module.train_dataloader()}
     trainer.fit(
         model_module, 
         train_dataloaders=train_dataloader,
@@ -479,11 +520,11 @@ if __name__ == "__main__":
         help="Path to a model checkpoint from which to restore training state"
     )
     parser.add_argument(
-        "--resume_from_ckpt_forward", type=str, default=None,
+        "--resume_from_ckpt_f", type=str, default=None,
         help="Path to a model checkpoint from which to restore model state of folding model"
     )
     parser.add_argument(
-        "--resume_from_ckpt_backward", type=str, default=None,
+        "--resume_from_ckpt_g", type=str, default=None,
         help="Path to a model checkpoint from which to restore model state of inverse folding model"
     )
 
@@ -552,45 +593,16 @@ if __name__ == "__main__":
         num_sanity_val_steps=0,
     )
 
-    # args = parser.parse_args()
-    # for k, v in vars(args).items():
-    #     logging.info(f"key: {k}")
-    #     logging.info(f"value: {v}")
-    #     logging.info(f"----------")
-    # logging.info(f"args.resume_model_weights_only is {args.resume_model_weights_only}")
-    # logging.info(f"args.resume_model_weights_only is {args.resume_model_weights_only}")
-
     # Remove some buggy/redundant arguments introduced by the Trainer
     remove_arguments(
         parser, 
         [
-            "--devices", 
-            "--num_nodes", 
             "--accelerator", 
             "--resume_from_checkpoint",
             "--reload_dataloaders_every_epoch",
             "--reload_dataloaders_every_n_epochs",
         ]
     ) 
-
-    parser.add_argument(
-        "--accelerator", type=str, default=None,
-        help=(
-            "specify the devices among 'cpu', 'gpu', 'auto'"
-        )
-    )
-    parser.add_argument(
-        "--devices", type=int, default=None,
-        help=(
-            "number of process per node"
-        )
-    )
-    parser.add_argument(
-        "--num_nodes", type=int, default=1,
-        help=(
-            "number of nodes"
-        )
-    )
 
     args = parser.parse_args()
 
