@@ -147,6 +147,23 @@ def output_to_bb(output: T.Dict) -> T.Dict:
             "chain_index": chain_index,
             }
 
+def extract_bb(output: T.Dict) -> T.Dict:
+    """Returns the pbd (file) string from the model given the model output."""
+    # atom14_to_atom37 must be called first, as it fails on latest numpy if the
+    # input is a numpy array. It will work if the input is a torch tensor.
+    final_atom_positions = output["final_atom_positions"]
+
+    n_pos = residue_constants.atom_order["N"]
+    gt_coords_n = final_atom_positions[..., n_pos, :].unsqueeze(-2) # [*, N, 1, 3]
+    ca_pos = residue_constants.atom_order["CA"]
+    gt_coords_ca = final_atom_positions[..., ca_pos, :].unsqueeze(-2) # [*, N, 1, 3]
+    c_pos = residue_constants.atom_order["C"]
+    gt_coords_c = final_atom_positions[..., c_pos, :].unsqueeze(-2) # [*, N, 1, 3]
+    o_pos = residue_constants.atom_order["O"]
+    gt_coords_o = final_atom_positions[..., o_pos, :].unsqueeze(-2) # [*, N, 1, 3]
+    coords_feats = torch.cat((gt_coords_n, gt_coords_ca, gt_coords_c, gt_coords_o), dim=-2)
+    return coords_feats
+
 
 
 def collate_dense_tensors(

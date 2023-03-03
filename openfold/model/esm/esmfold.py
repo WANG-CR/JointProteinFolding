@@ -80,7 +80,7 @@ class ESMFold(nn.Module):
         
         # require_grad = False
         self.esm.requires_grad_(False)
-        self.esm.half()
+        # self.esm.half()
 
         self.esm_feats = self.esm.embed_dim
         self.esm_attns = self.esm.num_layers * self.esm.attention_heads
@@ -276,10 +276,8 @@ class ESMFold(nn.Module):
 
         ############# No.3 lm loss
         lm_logits = self.lm_head(structure["s_s"])
-        if self.using_fair:
+        if self.track_seq_states:
             seqResNet_logits = structure["seqs_logits"]
-        # print(f"lm_logits shape is : {lm_logits.shape}")
-        # print(f"seqResNet_logits shape is : {seqResNet_logits.shape}")
             structure["lm_logits"] = (lm_logits + seqResNet_logits)[-1]
         else:
             structure["lm_logits"] = lm_logits[-1]
