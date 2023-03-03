@@ -3,11 +3,12 @@
 #SBATCH --cpus-per-task=10
 #SBATCH --mem=186G
 #SBATCH --nodes=1
+#SBATCH --gres=gpu:4
 #SBATCH --ntasks-per-node=4
-#SBATCH --time=24:00:00
+#SBATCH --time=2:00:00
 #SBATCH --exclusive
-#SBATCH --output=/home/chuanrui/scratch/research/ProteinFolding/JointProteinFolding/slurm_log/debug_inverse2.out
-#SBATCH --error=/home/chuanrui/scratch/research/ProteinFolding/JointProteinFolding/slurm_log/debug_inverse2.err
+#SBATCH --output=/home/chuanrui/scratch/research/ProteinFolding/JointProteinFolding/slurm_log/debug_inverse3.out
+#SBATCH --error=/home/chuanrui/scratch/research/ProteinFolding/JointProteinFolding/slurm_log/debug_inverse3.err
 #SBATCH --qos=main
 
 ENV_NAME=pf2 # your environment name
@@ -27,11 +28,11 @@ OUTPUT_DIR=$WORK_DIR/output/inverse
 TORCH_DISTRIBUTED_DEBUG=DETAIL srun python train_invfold.py $TRAIN_DIR $OUTPUT_DIR \
     --val_data_dir $VALID_DIR \
     --seed 2024 \
-    --yaml_config_preset yaml_config/baseline_inverse/inverse_block8_bs8.yml \
+    --yaml_config_preset yaml_config/baseline_inverse/inverse_block8_bs1.yml \
     --precision 32  --log_every_n_steps 5 \
-    --train_epoch_len 1600 \
+    --train_epoch_len 20 \
     --gpus 4 \
-    --wandb true \
-    --wandb_entity chuanrui \
-    --wandb_version debug_inverse_beluga2 \
-    --wandb_project debug_beluga \
+    # --wandb true \
+    # --wandb_entity chuanrui \
+    # --wandb_version debug_inverse_beluga2 \
+    # --wandb_project debug_beluga \
