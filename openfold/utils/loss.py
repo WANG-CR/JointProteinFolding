@@ -103,9 +103,9 @@ def check_inf_nan(
             )
     for idx, tensor in enumerate(tensors):
         if torch.isnan(tensor).any():
-            print(f"nan point value: {tensor}")
-            print(f"nan point: {tensor[torch.isnan(tensor)==1]}")
-            print(f"get 1 nan point, idx: {idx}")
+            # print(f"nan point value: {tensor}")
+            # print(f"nan point: {tensor[torch.isnan(tensor)==1]}")
+            # print(f"get 1 nan point, idx: {idx}")
             return True
         assert not torch.isnan(tensor).any(), f"idx: {idx}"
         assert not torch.isinf(tensor).any(), f"idx: {idx}"

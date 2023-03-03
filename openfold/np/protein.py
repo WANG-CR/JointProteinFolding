@@ -85,13 +85,15 @@ def from_pdb_string(pdb_str: str, chain_id: Optional[str] = None) -> Protein:
     b_factors = []
 
     for chain in model:
+        insertion_code_offset = 0
         if chain_id is not None and chain.id != chain_id:
             continue
         for res in chain:
             if res.id[2] != ' ':
-                raise ValueError(
-                        f'PDB contains an insertion code at chain {chain.id} and residue '
-                        f'index {res.id[1]}. These are not supported.')
+                insertion_code_offset += 1
+                # raise ValueError(
+                #         f'PDB contains an insertion code at chain {chain.id} and residue '
+                #         f'index {res.id[1]}. These are not supported.')
             res_shortname = residue_constants.restype_3to1.get(res.resname, 'X')
             restype_idx = residue_constants.restype_order.get(
                     res_shortname, residue_constants.restype_num)
@@ -110,7 +112,7 @@ def from_pdb_string(pdb_str: str, chain_id: Optional[str] = None) -> Protein:
             aatype.append(restype_idx)
             atom_positions.append(pos)
             atom_mask.append(mask)
-            residue_index.append(res.id[1])
+            residue_index.append(res.id[1]+insertion_code_offset)
             chain_ids.append(chain.id)
             b_factors.append(res_b_factors)
 
@@ -379,6 +381,36 @@ def from_prediction(
         # atom_mask=residx_atom37_mask,
         atom_mask=result["final_atom_mask"],
         residue_index=features["residue_index"] + 1,
+        chain_index=chain_index,
+        b_factors=b_factors,
+    )
+
+def from_cath(
+    aatype,
+    final_atom_positions,
+    final_atom_mask,
+    residue_index,
+) -> Protein:
+    """Assembles a protein from a prediction.
+
+    Args:
+      features: Dictionary holding model inputs.
+      result: Dictionary holding model outputs.
+      b_factors: (Optional) B-factors to use for the protein.
+
+    Returns:
+      A protein instance.
+    """
+
+    b_factors = np.zeros_like(final_atom_mask)
+    chain_index = np.zeros_like(aatype)
+
+    return Protein(
+        aatype=aatype,
+        atom_positions=final_atom_positions,
+        # atom_mask=residx_atom37_mask,
+        atom_mask=final_atom_mask,
+        residue_index=residue_index + 1,
         chain_index=chain_index,
         b_factors=b_factors,
     )

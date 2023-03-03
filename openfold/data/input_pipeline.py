@@ -35,16 +35,16 @@ def nonensembled_transform_fns(mode_cfg):
     ] 
 
     # if mode_cfg.supervised:
-    transforms.extend(
-        [
-            data_transforms.make_atom14_positions,
-            data_transforms.atom37_to_frames,
-            data_transforms.atom37_to_torsion_angles(""),
-            data_transforms.make_pseudo_beta(""),
-            data_transforms.get_backbone_frames,
-            data_transforms.get_chi_angles,
-        ]
-    )
+    # transforms.extend(
+    #     [
+    #         data_transforms.make_atom14_positions,
+    #         data_transforms.atom37_to_frames,
+    #         data_transforms.atom37_to_torsion_angles(""),
+    #         data_transforms.make_pseudo_beta(""),
+    #         data_transforms.get_backbone_frames,
+    #         data_transforms.get_chi_angles,
+    #     ]
+    # )
 
     return transforms
 
