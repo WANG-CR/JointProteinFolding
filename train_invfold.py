@@ -39,34 +39,20 @@ class OpenFoldWrapper(pl.LightningModule):
         self.model = AlphaFoldInverse(config)
         # self.dummyloss = AlphaFoldLoss(config.loss)
         self.loss = InverseLoss(config.loss)
-        self.ema = ExponentialMovingAverage(
-            model=self.model, decay=config.ema.decay
-        )
-
+        self.ema_enabled = False
+        if self.ema_enabled:
+            self.ema = ExponentialMovingAverage(
+                model=self.model, decay=config.ema.decay
+            )
         self.cached_weights = None
     
     def forward(self, batch):
         return self.model(batch)
 
-    def _log(self, loss_breakdown, batch, outputs, train=True):
-        phase = "train" if train else "val"
-        for loss_name, indiv_loss in loss_breakdown.items():
-            self.log(
-                f"{phase}/{loss_name}", 
-                indiv_loss, 
-                on_step=train, on_epoch=(not train), logger=True,
-            )
-
-            if(train):
-                self.log(
-                    f"{phase}/{loss_name}_epoch",
-                    indiv_loss,
-                    on_step=False, on_epoch=True, logger=True,
-                )
-
     def training_step(self, batch, batch_idx):
-        if(self.ema.device != batch["aatype"].device):
-            self.ema.to(batch["aatype"].device)
+        if self.ema_enabled:
+            if (self.ema.device != batch["aatype"].device):
+                self.ema.to(batch["aatype"].device)
 
         # Run the model
         outputs = self(batch)
@@ -75,70 +61,47 @@ class OpenFoldWrapper(pl.LightningModule):
         logits = outputs["sm"]["seqs_logits"][-1]
         aatype = batch["aatype"][..., -1]
         
-        ## using self.loss
-        # # logging.info(f"logits is {logits}")
-        # # logging.info(f"aatype is {aatype}")
-        # # # only last step computed as ce
-        # masked_pred = logits.masked_select(batch["seq_mask"][..., -1].unsqueeze(-1).to(torch.bool)).view(-1, restype_num + 1) # Nl x 21
-        # masked_target = aatype.masked_select(batch["seq_mask"][..., -1].to(torch.bool)).view(-1)    # Nl
-        # # logging.info(f"masked logits is {masked_pred[1, ...]}")
-        # # logging.info(f"masked logits shape is {masked_pred.shape}")
-        # # logging.info(f"masked_target shape is {masked_target.shape}")
-        # batch = tensor_tree_map(lambda t: t[..., -1], batch)
-        # loss, loss_breakdown = self.loss(
-        #     outputs, batch, _return_breakdown=True
-        # )
-
-        # # Log it
-        # self._log(loss_breakdown, batch, outputs)
-        # return loss
-        # logging.info(f"masked aatype is {masked_target.shape}")
-        # ce = softmax_cross_entropy(masked_pred, masked_target)
+        # calculate ce and aar
         masked_pred = logits.masked_select(batch["seq_mask"][..., -1].unsqueeze(-1).to(torch.bool)).view(-1, restype_num + 1) # Nl x 21
         masked_target = aatype.masked_select(batch["seq_mask"][..., -1].to(torch.bool)).view(-1)    # Nl
-
         ce = F.cross_entropy(masked_pred, masked_target.long())
         ppl = ce.exp()
+
+        sample_logits = logits.clone().detach()
+        sample_logits[..., -1] = -9999 # zero out UNK.
+        sampled_seqs = sample_logits.argmax(dim=-1)
+        masked_sampled_seqs = sampled_seqs.masked_select(batch["seq_mask"][..., -1].to(torch.bool)).view(-1)
+        aars = masked_sampled_seqs.eq(masked_target).float().mean()
 
         dummy_loss = sum([v.float().sum() for v in outputs["sm"].values()])    # calculate other loss (pl distributed training)
 
         # Log it
-        self.log('train/g_loss', ce, on_step=True, on_epoch=False, prog_bar=False, logger=True)
-        self.log('train/g_PPL', ppl, on_step=True, on_epoch=False, prog_bar=True, logger=True)
-        
+        self.log('train/g_loss', ce, on_step=True, on_epoch=False, prog_bar=True, logger=True)
+        self.log('train/g_PPL', ppl, on_step=True, on_epoch=False, prog_bar=False, logger=True)
+        self.log('train/g_aar', aars, on_step=True, on_epoch=False, prog_bar=True, logger=True)
         self.log('train/g_loss_epoch', ce, on_step=False, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
         self.log('train/g_PPL_epoch', ppl, on_step=False, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
-
+        self.log('train/g_aar_epoch', aars, on_step=False, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
         loss = ce + 0. * dummy_loss
         return loss
 
     def on_before_zero_grad(self, *args, **kwargs):
-        self.ema.update(self.model)
+        if self.ema_enabled:
+            self.ema.update(self.model)
 
     def validation_step(self, batch, batch_idx):
         # At the start of validation, load the EMA weights
-        if(self.cached_weights is None):
-            # model.state_dict() contains references to model weights rather
-            # than copies. Therefore, we need to clone them before calling 
-            # load_state_dict().
-            clone_param = lambda t: t.detach().clone()
-            self.cached_weights = tensor_tree_map(clone_param, self.model.state_dict())
-            self.model.load_state_dict(self.ema.state_dict()["params"])
+        if self.ema_enabled:
+            if(self.cached_weights is None):
+                # model.state_dict() contains references to model weights rather
+                # than copies. Therefore, we need to clone them before calling 
+                # load_state_dict().
+                clone_param = lambda t: t.detach().clone()
+                self.cached_weights = tensor_tree_map(clone_param, self.model.state_dict())
+                self.model.load_state_dict(self.ema.state_dict()["params"])
 
         outputs = self(batch)
         # batch = tensor_tree_map(lambda t: t[..., -1], batch)
-
-        # # use self.loss
-        # # Compute loss and other metrics
-        # batch["use_clamped_fape"] = 0.
-        # _, loss_breakdown = self.loss(
-        #     outputs, batch, _return_breakdown=True
-        # )
-
-        # self._log(loss_breakdown, batch, outputs, train=False)
-
-        # # Run the model
-        # outputs = self(batch)
 
         # only last step computed as ce
         logits = outputs["sm"]["seqs_logits"][-1]
@@ -147,14 +110,12 @@ class OpenFoldWrapper(pl.LightningModule):
         # only last step computed as ce
         masked_pred = logits.masked_select(batch["seq_mask"][..., -1].unsqueeze(-1).to(torch.bool)).view(-1, restype_num+1) # Nl x 21
         masked_target = aatype.masked_select(batch["seq_mask"][..., -1].to(torch.bool)).view(-1)    # Nl
-
         ce = F.cross_entropy(masked_pred, masked_target)
         ppl = ce.exp()
         
         logits[..., -1] = -9999 # zero out UNK.
         sampled_seqs = logits.argmax(dim=-1)    # greedy sampling
         masked_sampled_seqs = sampled_seqs.masked_select(batch["seq_mask"][..., -1].to(torch.bool)).view(-1) # N x Nl
-        
         aars = masked_sampled_seqs.eq(masked_target).float().mean()
 
         self.log('val/g_loss', ce, on_step=False, on_epoch=True, prog_bar=False, logger=False, sync_dist=True)
@@ -165,63 +126,10 @@ class OpenFoldWrapper(pl.LightningModule):
 
     def validation_epoch_end(self, _):
         # Restore the model weights to normal
-        self.model.load_state_dict(self.cached_weights)
-        self.cached_weights = None
+        if self.ema_enabled:
+            self.model.load_state_dict(self.cached_weights)
+            self.cached_weights = None
 
-    
-    def __compute_validation_metrics(self, 
-        batch, 
-        outputs, 
-        superimposition_metrics=False
-    ):
-        """# abandoned
-        """
-        metrics = {}
-        
-        gt_coords = batch["all_atom_positions"].float() # [*, N, 37, 3]
-        pred_coords = outputs["final_atom_positions"].float() # [*, N, 37, 3]
-        all_atom_mask = batch["all_atom_mask"].float() # [*, N, 37]
-        # This is super janky for superimposition. Fix later
-        gt_coords_masked = gt_coords * all_atom_mask[..., None] # [*, N, 37, 3]
-        pred_coords_masked = pred_coords * all_atom_mask[..., None] # [*, N, 37, 3]
-        ca_pos = residue_constants.atom_order["CA"]
-        gt_coords_masked_ca = gt_coords_masked[..., ca_pos, :] # [*, N, 3]
-        pred_coords_masked_ca = pred_coords_masked[..., ca_pos, :] # [*, N, 3]
-        all_atom_mask_ca = all_atom_mask[..., ca_pos] # [*, N]
-    
-        lddt_ca_score = lddt_ca(
-            pred_coords,
-            gt_coords,
-            all_atom_mask,
-            eps=self.config.globals.eps,
-            per_residue=False,
-        ) # [*]
-
-        metrics["lddt_ca"] = lddt_ca_score
-
-        drmsd_ca_score = compute_drmsd(
-            pred_coords_masked_ca,
-            gt_coords_masked_ca,
-            mask=all_atom_mask_ca,
-        ) # [*]
-
-        metrics["drmsd_ca"] = drmsd_ca_score
-
-        if(superimposition_metrics):
-            superimposed_pred, _ = superimpose(
-                gt_coords_masked_ca, pred_coords_masked_ca
-            ) # [*, N, 3]
-            gdt_ts_score = gdt_ts(
-                superimposed_pred, gt_coords_masked_ca, all_atom_mask_ca
-            )
-            gdt_ha_score = gdt_ha(
-                superimposed_pred, gt_coords_masked_ca, all_atom_mask_ca
-            )
-
-            metrics["gdt_ts"] = gdt_ts_score
-            metrics["gdt_ha"] = gdt_ha_score
-    
-        return metrics
 
     def configure_optimizers(self) -> torch.optim.Adam:
         optim_config = self.config.optimizer
@@ -253,10 +161,12 @@ class OpenFoldWrapper(pl.LightningModule):
         }
 
     def on_load_checkpoint(self, checkpoint):
-        self.ema.load_state_dict(checkpoint["ema"])
+        if self.ema_enabled:
+            self.ema.load_state_dict(checkpoint["ema"])
 
     def on_save_checkpoint(self, checkpoint):
-        checkpoint["ema"] = self.ema.state_dict()
+        if self.ema_enabled:
+            checkpoint["ema"] = self.ema.state_dict()
 
 
 def main(args):

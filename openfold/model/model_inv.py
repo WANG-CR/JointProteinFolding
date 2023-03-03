@@ -144,11 +144,7 @@ class AlphaFoldInverse(nn.Module):
         self.aux_heads = None
 
     def iteration(
-        self, feats, m_1_prev, z_prev, x_prev, seqs_prev,
-        initial_rigids=None,
-        initial_seqs=None,
-        _recycle=False,
-        denoise_feats=None,
+        self, feats
     ):
         """
         Required 'feats' keys w/ shape:
@@ -175,7 +171,7 @@ class AlphaFoldInverse(nn.Module):
         ##### Grab some data about the input: Disabled now
 
         # Prep some features
-        
+        # check_inf_nan(pair_rbf)
         seq_mask = feats["seq_mask"][..., 0]
         pair_mask = seq_mask[..., None] * seq_mask[..., None, :]
 
@@ -229,18 +225,7 @@ class AlphaFoldInverse(nn.Module):
             outputs["sm"] = {}
             outputs["sm"]["seqs_logits"] = logits.unsqueeze(0)
 
-        # [*, N, C_m]
-        m_1_prev = m
-
-        # [*, N, N, C_z]
-        z_prev = z
-
-        # [*, N, 37, 3]
-        x_prev = None   #outputs["final_atom_positions"]
-        
-        seqs_prev = None #outputs["sm"]["seqs"][-1]
-
-        return outputs, m_1_prev, z_prev, x_prev, seqs_prev
+        return outputs
 
     def _disable_activation_checkpointing(self):
         self.evoformer.blocks_per_ckpt = None
@@ -277,31 +262,15 @@ class AlphaFoldInverse(nn.Module):
                     "pair_mask" ([*, N_res, N_res])
                         2-D pair mask
         """
-        # Initialize recycling embeddings
-        m_1_prev, z_prev, x_prev = None, None, None
-        seqs_prev = None
-        
-        # denoise feats
-        # it is empty if denoise_enabled is False
-        denoise_feats = {}
 
         # Disable activation checkpointing for the first few recycling iters
         is_grad_enabled = torch.is_grad_enabled()
         self._disable_activation_checkpointing()
 
-        # Main recycling loop
-        # num_iters = batch["aatype"].shape[-1]
-        recycle_outputs = []
         num_iters = 1
-
         # dummy disable recycling
         for cycle_no in range(num_iters):
-            # Select the features for the current recycling cycle
-            
-            # fetch_cur_batch = lambda t: t[..., cycle_no]
-            # feats = tensor_tree_map(fetch_cur_batch, batch)
             feats = batch
-            
             # Enable grad iff we're training and it's the final recycling layer
             is_final_iter = cycle_no == (num_iters - 1)
             with torch.set_grad_enabled(is_grad_enabled and is_final_iter):
@@ -311,30 +280,13 @@ class AlphaFoldInverse(nn.Module):
                     if torch.is_autocast_enabled():
                         torch.clear_autocast_cache()
                 
-                # identity rigid.
-                initial_rigids = None
-
                 # Run the next iteration of the model
                 # only run once
-                outputs, m_1_prev, z_prev, x_prev, seqs_prev = self.iteration(
+                outputs = self.iteration(
                     feats,
-                    m_1_prev,
-                    z_prev,
-                    x_prev,
-                    seqs_prev,
-                    initial_rigids=initial_rigids,
-                    initial_seqs=None,
-                    _recycle=(num_iters > 1),
-                    denoise_feats=denoise_feats,
                 )
-                # outputs.update(self.aux_heads(outputs))
-                recycle_outputs.append(outputs)
 
         outputs = copy.copy(outputs)
-        # outputs.update(self.aux_heads(outputs)) # done in the loop
-        # outputs["recycle_outputs"] = recycle_outputs
-
-        # logits = outputs["sm"]["seqs_logits"]
         return outputs
     
     def iteration_h(
@@ -369,9 +321,9 @@ class AlphaFoldInverse(nn.Module):
         ##### Grab some data about the input: Disabled now
 
         # Prep some features
-        logging.info(f">>> debug: coords_bb shape is {coords_bb.shape}")
-        logging.info(f">>> debug: seq mask shape is {feats['seq_mask'].shape}")
-        logging.info(f">>> debug: target feature shape is {feats['target_feat'].shape}")
+        # logging.info(f">>> debug: coords_bb shape is {coords_bb.shape}")
+        # logging.info(f">>> debug: seq mask shape is {feats['seq_mask'].shape}")
+        # logging.info(f">>> debug: target feature shape is {feats['target_feat'].shape}")
         
         seq_mask = feats["seq_mask"][..., 0]
         # logging.info(f'feats["coords"] size during iteration is {feats["coords"].shape}')
