@@ -863,6 +863,14 @@ def ss_to_onehot(
 
     return one_hot_arr
 
+def sequence_to_index(sequence):
+    arr = np.zeros(len(sequence), dtype=np.int32)
+    for aa_index, aa_type in enumerate(sequence):
+        aa_id = restype_order_with_x[aa_type]
+        arr[aa_index] = aa_id
+    return arr
+
+
 def aatype_to_sequence(aatype):
     sequence = ""
     for i in aatype:
