@@ -120,12 +120,29 @@ Note that CATH dataset and miniprotein dataset are both PDB type data, which con
     ```
 
 
-
-
 ### Logging with W&B
     The codebase currently use Weight&Bias tool to help save the logs, training curves and validation curves.
 
     If you have not initialize W&B(wandb), please kindly follow the [instruction](https://wandb.ai/quickstart/pytorch) here.
+
+
+## evaluating ESMFold model
+We follow the original evaluation process written in ESMFold paper. The evaluation process can be reproduced as follows:
+```
+1. download CASP14 dataset from link: https://zenodo.org/record/7713779#.ZA0uKOyZMUF
+2. extract the zip, and pick out the 51 proteins used for ESMFold evaluation
+3. run script: folding_benchmark.sh 
+
+#note
+Esmfold_v0 checkpoint gives the same tm-score in paper, which is 0.68 
+Esmfold_v1 checkpoint gives a higher tm-score = 0.70
+``` 
+
+P.S. we also need to install additional packages via this cmd:
+```
+pip install biotite
+pip install git+https://github.com/jvkersch/tmtools.git#egg=tmtools
+```
 
 ## Copyright notice
 
