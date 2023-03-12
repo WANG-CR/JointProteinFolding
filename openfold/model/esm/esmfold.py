@@ -80,7 +80,8 @@ class ESMFold(nn.Module):
         
         # require_grad = False
         self.esm.requires_grad_(False)
-        # self.esm.half()
+        self.esm.half()
+        # self.esm.bfloat16()
 
         self.esm_feats = self.esm.embed_dim
         self.esm_attns = self.esm.num_layers * self.esm.attention_heads
