@@ -133,6 +133,99 @@ def from_pdb_string(pdb_str: str, chain_id: Optional[str] = None) -> Protein:
         b_factors=np.array(b_factors),
     )
 
+def from_pdb_string_multichain(pdb_str: str):
+    """Takes a PDB string and constructs a Protein object.
+
+    WARNING: All non-standard residue types will be converted into UNK. All
+        non-standard atoms will be ignored.
+
+    Args:
+        pdb_str: The contents of the pdb file
+        chain_id: If None, then the pdb file must contain a single chain (which
+        will be parsed). If chain_id is specified (e.g. A), then only that chain
+        is parsed.
+
+    Returns:
+        A new `Protein` parsed from the pdb contents.
+    """
+    pdb_fh = io.StringIO(pdb_str)
+    parser = PDBParser(QUIET=True)
+    structure = parser.get_structure("none", pdb_fh)
+    models = list(structure.get_models())
+    if len(models) != 1:
+        raise ValueError(
+            f"Only single model PDBs are supported. Found {len(models)} models."
+        )
+    model = models[0]
+
+
+    proteins = []
+    chain_strs = []
+    for chain in model:
+        insertion_code_offset = 0
+        atom_positions = []
+        aatype = []
+        atom_mask = []
+        residue_index = []
+        chain_ids = []
+        b_factors = []
+        chain_id = 0
+        for res in chain:
+            if res.id[2] != ' ':
+                insertion_code_offset += 1
+                # raise ValueError(
+                #         f'PDB contains an insertion code at chain {chain.id} and residue '
+                #         f'index {res.id[1]}. These are not supported.')
+            res_shortname = residue_constants.restype_3to1.get(res.resname, 'X')
+            restype_idx = residue_constants.restype_order.get(
+                    res_shortname, residue_constants.restype_num)
+            pos = np.zeros((residue_constants.atom_type_num, 3))
+            mask = np.zeros((residue_constants.atom_type_num,))
+            res_b_factors = np.zeros((residue_constants.atom_type_num,))
+            for atom in res:
+                if atom.name not in residue_constants.atom_types:
+                    continue
+                pos[residue_constants.atom_order[atom.name]] = atom.coord
+                mask[residue_constants.atom_order[atom.name]] = 1.
+                res_b_factors[residue_constants.atom_order[atom.name]] = atom.bfactor
+            if np.sum(mask) < 0.5:
+                # If no known atom positions are reported for the residue then skip it.
+                continue
+            aatype.append(restype_idx)
+            atom_positions.append(pos)
+            atom_mask.append(mask)
+            residue_index.append(res.id[1]+insertion_code_offset)
+            chain_ids.append(chain_id)
+            chain_strs.append(chain.id)
+            b_factors.append(res_b_factors)
+        chain_id += 1
+        # proteins[chain.id] = Protein(
+        #     atom_positions=np.array(atom_positions),
+        #     atom_mask=np.array(atom_mask),
+        #     aatype=np.array(aatype),
+        #     residue_index=np.array(residue_index),
+        #     chain_index=np.array(chain_ids),
+        #     b_factors=np.array(b_factors),
+        # )
+        proteins.append(Protein(
+            atom_positions=np.array(atom_positions),
+            atom_mask=np.array(atom_mask),
+            aatype=np.array(aatype),
+            residue_index=np.array(residue_index),
+            chain_index=np.array(chain_ids),
+            b_factors=np.array(b_factors),
+        ))
+
+    # Chain IDs are usually characters so map these to ints.
+    chain_strs = np.array(chain_strs)
+    _, idx = np.unique(chain_strs, return_index=True)
+    unique_chain_strs = chain_strs[np.sort(idx)]
+    
+    # chain_strs_mapping = {cid: n for n, cid in enumerate(unique_chain_strs)}
+    # chain_index = np.array([chain_strs_mapping[cid] for cid in chain_strs])
+
+    return proteins, unique_chain_strs
+
 def from_pdb_string_antibody(pdb_str: str, chain_id: Optional[str] = None) -> Protein:
     """Takes a PDB string and constructs a Antibody Protein object.
 
@@ -282,6 +375,90 @@ def to_pdb(prot: Protein, output_mask: Optional[np.ndarray] = None) -> str:
             raise ValueError(
                 f'The PDB format supports at most {PDB_MAX_CHAINS} chains.')
         chain_ids[i] = PDB_CHAIN_IDS[i]
+
+    pdb_lines.append('MODEL     1')
+    atom_index = 1
+    last_chain_index = chain_index[0]
+    # Add all atom sites.
+    for i in range(aatype.shape[0]):
+        # Close the previous chain if in a multichain PDB.
+        if last_chain_index != chain_index[i]:
+            last_chain_index = chain_index[i]
+            # Ignore the X residue
+            if res_1to3(aatype[i - 1]) != "UNK":
+                pdb_lines.append(_chain_end(
+                    atom_index, res_1to3(
+                        aatype[i - 1]), chain_ids[chain_index[i - 1]],
+                    residue_index[i - 1]))
+                atom_index += 1  # Atom index increases at the TER symbol.
+
+        res_name_3 = res_1to3(aatype[i])
+        for atom_name, pos, mask, b_factor in zip(
+                atom_types, atom_positions[i], atom_mask[i], b_factors[i]):
+            if mask < 0.5:
+                continue
+
+            record_type = 'ATOM'
+            name = atom_name if len(atom_name) == 4 else f' {atom_name}'
+            alt_loc = ''
+            insertion_code = ''
+            occupancy = 1.00
+            # Protein supports only C, N, O, S, this works.
+            element = atom_name[0]
+            charge = ''
+            # PDB is a columnar format, every space matters here!
+            atom_line = (f'{record_type:<6}{atom_index:>5} {name:<4}{alt_loc:>1}'
+                         f'{res_name_3:>3} {chain_ids[chain_index[i]]:>1}'
+                         f'{residue_index[i]:>4}{insertion_code:>1}   '
+                         f'{pos[0]:>8.3f}{pos[1]:>8.3f}{pos[2]:>8.3f}'
+                         f'{occupancy:>6.2f}{b_factor:>6.2f}          '
+                         f'{element:>2}{charge:>2}')
+            pdb_lines.append(atom_line)
+            atom_index += 1
+
+    # Close the final chain.
+    pdb_lines.append(_chain_end(atom_index, res_1to3(aatype[-1]),
+                                chain_ids[chain_index[-1]], residue_index[-1]))
+    pdb_lines.append('ENDMDL')
+    pdb_lines.append('END')
+
+    # Pad all lines to 80 characters.
+    pdb_lines = [line.ljust(80) for line in pdb_lines]
+    return '\n'.join(pdb_lines) + '\n'  # Add terminating newline. 
+
+def to_pdb_with_chain_name(prot: Protein, chain_name, output_mask: Optional[np.ndarray] = None) -> str:
+    """Converts a `Protein` instance to a PDB string.
+    Args:
+            prot: The protein to convert to PDB.
+            output_mask: The residual level mask indicating whether to keep the residual or not.
+    Returns:
+            PDB string.
+    """
+    restypes = residue_constants.restypes + ['X']
+    res_1to3 = lambda r: residue_constants.restype_1to3.get(restypes[r], "UNK")
+    atom_types = residue_constants.atom_types
+
+    pdb_lines = []
+
+    atom_mask = prot.atom_mask
+    if output_mask is not None:
+        atom_mask = atom_mask * output_mask[..., None]
+    aatype = prot.aatype
+    atom_positions = prot.atom_positions
+    residue_index = prot.residue_index.astype(np.int32)
+    chain_index = prot.chain_index.astype(np.int32)
+    b_factors = prot.b_factors
+
+    if np.any(aatype > residue_constants.restype_num):
+        raise ValueError('Invalid aatypes.')
+
+    # Construct a mapping from chain integer indices to chain ID strings.
+    chain_ids = {}
+    for i in np.unique(chain_index):  # np.unique gives sorted output.
+        if i >= PDB_MAX_CHAINS:
+            raise ValueError(
+                f'The PDB format supports at most {PDB_MAX_CHAINS} chains.')
+        chain_ids[i] = chain_name
 
     pdb_lines.append('MODEL     1')
     atom_index = 1

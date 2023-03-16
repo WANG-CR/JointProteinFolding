@@ -144,6 +144,28 @@ pip install biotite
 pip install git+https://github.com/jvkersch/tmtools.git#egg=tmtools
 ```
 
+## ESMFold training set curation
+
+- step 1: download a list of protein names from PDB
+
+
+- step 2: 
+`bash scripts/data_process/esmfold/batch_download.sh -f scripts/data_process/esmfold/filtered.txt -o <output_dir_for_pdb_gz> -p`
+
+
+- step 3: pack the .pdb.gz files into a zip, and move this file into a repository associated with the compute node.
+`bash scripts/data_process/esmfold/continue_zip.sh`
+
+- step 4: do the following unzip operations on the compute node.
+`bash scripts/data_process/esmfold/unzip_pdb.sh`
+
+
+- step 5: filter the pdb with certain criteria (filter out pdb with 20% of the sequence being the same residue type); seperate pdbs into single chain pdbs; save fasta too
+`bash process_pdb.sh`
+
+
+- step 6: do mmseqs2 easy-cluster with 40% sequence identity
+
 ## Copyright notice
 
 ## Citing this work
