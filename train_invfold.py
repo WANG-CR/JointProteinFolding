@@ -40,6 +40,7 @@ class OpenFoldWrapper(pl.LightningModule):
         # self.dummyloss = AlphaFoldLoss(config.loss)
         self.loss = InverseLoss(config.loss)
         self.ema_enabled = False
+        # self.ema_enabled = True
         if self.ema_enabled:
             self.ema = ExponentialMovingAverage(
                 model=self.model, decay=config.ema.decay
@@ -214,7 +215,7 @@ def main(args):
             mode="min",
             every_n_epochs=1,
             save_last=False,
-            save_top_k=1,
+            save_top_k=5,
         )
         callbacks.append(mc)
 
