@@ -66,16 +66,27 @@ def save_protein(prot: protein.Protein, chain_id, accept, fname, output_dir):
         with open(tgt_path, 'w') as f:
             f.write(protein.to_pdb_with_chain_name(prot,chain_id))
 
+# def save_fasta(prot: protein.Protein, chain_id, accept, fname, output_dir):
+#     if accept:
+#         tgt_path = os.path.join(output_dir, fname+chain_id+".fasta")
+#         sequence = convert_to_seq(prot)
+#         with open(tgt_path, 'w') as f:
+#             f.write(">"+fname+chain_id+os.linesep)
+#             f.write(sequence)
+
+# write to unique fasta file
 def save_fasta(prot: protein.Protein, chain_id, accept, fname, output_dir):
     if accept:
-        tgt_path = os.path.join(output_dir, fname+chain_id+".fasta")
+        tgt_path = os.path.join(output_dir, "all.fasta")
         sequence = convert_to_seq(prot)
-        with open(tgt_path, 'w') as f:
+        with open(tgt_path, 'a') as f:
             f.write(">"+fname+chain_id+os.linesep)
-            f.write(sequence)
+            f.write(sequence+os.linesep)
 
-def reject_aa_80(prot: protein.Protein):
+def reject_aa_80_len_20(prot: protein.Protein):
     aatype = prot.aatype
+    if len(aatype) <= 20:
+        return False
     _, counts = np.unique(aatype, return_counts=True)
     fractions = counts/len(aatype)
     for i in range(len(fractions)):
@@ -94,12 +105,12 @@ def do(fname, src_path, fasta_output_dir, pdb_output_dir):
         pdb_str = f.read()
     try:
         protein_objects, unique_chain_ids = protein.from_pdb_string_multichain(pdb_str)
-        assert len(protein_objects[0].atom_positions) > 0
         assert len(protein_objects) == len(unique_chain_ids)
+        assert len(protein_objects[0].atom_positions) > 0
     except AssertionError as e:
         return (0, 0, 1, 0)
 
-    accept = list(map(reject_aa_80, protein_objects))
+    accept = list(map(reject_aa_80_len_20, protein_objects))
     count_accept = sum(accept)
     count_reject = len(accept) - sum(accept)
 
@@ -130,6 +141,8 @@ def main(args):
         if not os.path.exists(output_dir):
             os.makedirs(output_dir, exist_ok=True)
 
+    open(os.path.join(fasta_output_dir, "all.fasta"), "w").close()
+        
     src_paths = []
     for fname in filenames:
         src_path = os.path.join(args.input_dir, fname+".pdb")
@@ -144,6 +157,7 @@ def main(args):
             count_reject += output[1]
             count_error += output[2]
             count_pdb += output[3]
+        print(f"processing file successful. No. {count_pdb}")
     logging.info(
         f"parse error: {count_error} pdb files\n"
         f"parse succesful: {count_pdb} pdb files\n"
