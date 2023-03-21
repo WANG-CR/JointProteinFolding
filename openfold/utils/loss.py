@@ -337,13 +337,16 @@ def fape_esm_loss(
         **{**batch, **config.backbone},
     )
 
-    sc_loss = sidechain_loss(
-        out["sidechain_frames"],
-        out["positions"],
-        **{**batch, **config.sidechain},
-    )
+    if config.sidechain.weight == 0:
+        sc_loss = sidechain_loss(
+            out["sidechain_frames"],
+            out["positions"],
+            **{**batch, **config.sidechain},
+        )
+        loss = config.backbone.weight * bb_loss
 
-    loss = config.backbone.weight * bb_loss + config.sidechain.weight * sc_loss
+    else:
+        loss = config.backbone.weight * bb_loss + config.sidechain.weight * sc_loss
     
     # Average over the batch dimension
     loss = torch.mean(loss)
@@ -1929,10 +1932,11 @@ class ESMFoldLoss(nn.Module):
                 **{**batch, **self.config.lddt},
             ),
             ## no MLM loss
-            "seqs": lambda: seqs_loss(
-                logits=out["lm_logits"],
-                **{**batch, **self.config.seqs},
-            ),
+            ## need to fix, because esmfold has a dictionary of 23
+            # "seqs": lambda: seqs_loss(
+            #     logits=out["lm_logits"],
+            #     **{**batch, **self.config.seqs},
+            # ),
             "tm": lambda: tm_loss(
                 logits=out["ptm_logits"],
                 **{**batch, **out, **self.config.tm},

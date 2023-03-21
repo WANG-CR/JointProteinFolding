@@ -61,7 +61,7 @@ def constructConfigFromYAML(config):
     return ESMFoldConfig(trunk = trunk, lm=lm)
 
 class ESMFold(nn.Module):
-    def __init__(self, esmfold_config=None, using_fair=False, **kwargs):
+    def __init__(self, esmfold_config=None, using_fair=False, cpu=False, **kwargs):
         super().__init__()
 
         self.cfg = esmfold_config if esmfold_config else ESMFoldConfig(**kwargs)
@@ -80,7 +80,8 @@ class ESMFold(nn.Module):
         
         # require_grad = False
         self.esm.requires_grad_(False)
-        self.esm.half()
+        if not cpu:
+            self.esm.half()
         # self.esm.bfloat16()
 
         self.esm_feats = self.esm.embed_dim

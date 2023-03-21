@@ -34,17 +34,20 @@ def nonensembled_transform_fns(mode_cfg):
         data_transforms.make_atom14_masks,
     ] 
 
-    # if mode_cfg.supervised:
-    # transforms.extend(
-    #     [
-    #         data_transforms.make_atom14_positions,
-    #         data_transforms.atom37_to_frames,
-    #         data_transforms.atom37_to_torsion_angles(""),
-    #         data_transforms.make_pseudo_beta(""),
-    #         data_transforms.get_backbone_frames,
-    #         data_transforms.get_chi_angles,
-    #     ]
-    # )
+    # print(f"mode_cfg bb only is: {mode_cfg.bb_only}")
+    # logging.info(f"mode_cfg bb only is: {mode_cfg.bb_only}")
+    if not mode_cfg.bb_only:
+
+        transforms.extend(
+            [
+                data_transforms.make_atom14_positions,
+                data_transforms.atom37_to_frames,
+                data_transforms.atom37_to_torsion_angles(""),
+                data_transforms.make_pseudo_beta(""),
+                data_transforms.get_backbone_frames,
+                data_transforms.get_chi_angles,
+            ]
+        )
 
     return transforms
 

@@ -103,6 +103,7 @@ track_seq_states = mlc.FieldReference(False, field_type=bool)
 eps = mlc.FieldReference(1e-8, field_type=float)
 residue_emb_enabled = mlc.FieldReference(False, field_type=bool)
 residue_attn_enabled = mlc.FieldReference(False, field_type=bool)
+bb_only = mlc.FieldReference(False, field_type=bool)
 NUM_RES = "num residues placeholder"
 
 
@@ -178,6 +179,7 @@ config = mlc.ConfigDict(
                 "supervised": False,
                 "uniform_recycling": False,
                 "loop_type": "CDR",
+                "bb_only": bb_only,
             },
             "eval": {
                 "fixed_size": True,
@@ -186,6 +188,7 @@ config = mlc.ConfigDict(
                 "supervised": True,
                 "uniform_recycling": False,
                 "loop_type": "CDR",
+                "bb_only": bb_only,
             },
             "train": {
                 "fixed_size": True,
@@ -195,6 +198,7 @@ config = mlc.ConfigDict(
                 "clamp_prob": 0.9,
                 "uniform_recycling": True,
                 "loop_type": "CDR",
+                "bb_only": bb_only,
             },
             "data_module": {
                 "data_loaders": {
@@ -219,6 +223,7 @@ config = mlc.ConfigDict(
             "low_prec": False,
             "track_seq_states":track_seq_states,
             "lm_name": lm_name,
+            "bb_only": bb_only,
         },
         "optimizer": {
             "lr": 0.001,

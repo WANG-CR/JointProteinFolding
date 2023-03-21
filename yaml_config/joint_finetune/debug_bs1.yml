@@ -12,18 +12,26 @@ model:
     enabled: true
 
 globals:
-  inv_c_m: 256
+  inv_c_m: 1024
   inv_c_z: 128
   inv_c_m_structure: 384
   inv_c_z_structure: 128
+  c_m: 1024
+  c_z: 128
+  c_z_structure: 128
+  c_m_structure: 384
   lm_name: esm2_t36_3B_UR50D
+  # bb_only: true
 
 loss:
   tm:
     enabled: true
-    weight: 0.01
+    weight: 0.00
   supervised_chi:
     weight: 0.0
+  fape: 
+    sidechain:
+      weight: 0.0
 
 data:
   data_module:
