@@ -14,6 +14,7 @@ PICO_TO_ANGSTROM = 0.01
 
 # Complete sequence of chain IDs supported by the PDB format.
 PDB_CHAIN_IDS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
+PDB_CHAIN_ORDERS = {chain: i for i, chain in enumerate(PDB_CHAIN_IDS)}
 PDB_MAX_CHAINS = len(PDB_CHAIN_IDS)  # := 62.
 
 
@@ -153,9 +154,7 @@ def from_pdb_string_multichain(pdb_str: str):
     structure = parser.get_structure("none", pdb_fh)
     models = list(structure.get_models())
     if len(models) != 1:
-        raise ValueError(
-            f"Only single model PDBs are supported. Found {len(models)} models."
-        )
+        return [1,1], [0]
     model = models[0]
 
 
@@ -171,6 +170,8 @@ def from_pdb_string_multichain(pdb_str: str):
         b_factors = []
         chain_id = 0
         for res in chain:
+            if res.id[0] != ' ':
+                continue
             if res.id[2] != ' ':
                 insertion_code_offset += 1
                 # raise ValueError(
@@ -581,6 +582,40 @@ def from_cath(
 
     b_factors = np.zeros_like(final_atom_mask)
     chain_index = np.zeros_like(aatype)
+    
+    return Protein(
+        aatype=aatype,
+        atom_positions=final_atom_positions,
+        # atom_mask=residx_atom37_mask,
+        atom_mask=final_atom_mask,
+        residue_index=residue_index + 1,
+        chain_index=chain_index,
+        b_factors=b_factors,
+    )
+
+def from_esmif(
+    sample_sequence,
+    final_atom_positions,
+    final_atom_mask,
+    residue_index,
+    aar,
+    chain_name, 
+) -> Protein:
+    """Assembles a protein from a prediction.
+
+    Args:
+      features: Dictionary holding model inputs.
+      result: Dictionary holding model outputs.
+      b_factors: (Optional) B-factors to use for the protein.
+
+    Returns:
+      A protein instance.
+    """
+    aatype = residue_constants.sequence_to_index(sample_sequence)
+    b_factors = np.full_like(final_atom_mask, aar)
+    
+    chain_id = PDB_CHAIN_ORDERS[chain_name]
+    chain_index = np.full_like(aatype, chain_id)
 
     return Protein(
         aatype=aatype,

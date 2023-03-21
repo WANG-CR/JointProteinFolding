@@ -14,36 +14,6 @@ from openfold.utils.seed import seed_everything
 from openfold.np import protein, residue_constants
 import debugger
 
-""" 
-python scripts_cath/data/process_data.py \
-    /home/shichenc/scratch/structure_datasets/cath/raw/dompdb \
-    /home/shichenc/scratch/structure_datasets/cath/processed/top_split \
-    /home/shichenc/scratch/structure_datasets/cath/raw/ss_annotation_31885.pkl \
-        
-# before debug
-INFO:root:get 31885 files.
-INFO:root:get 1470 unique topologies
-INFO:root:859 data is excluded.
-large: 116 | not the same: 599
-parse error: 144 | remaining: 31026
-
-# after debug
-WARNING:root:get 31885 second structure data
-WARNING:root:remove bad pdbs: 1alo006, found chain:
-WARNING:root:remove bad pdbs: 1baa001, found chain:
-WARNING:root:remove bad pdbs: 1bdp001, found chain:
-WARNING:root:remove bad pdbs: 1bdp002, found chain:
-WARNING:root:remove bad pdbs: 1gep001, found chain:
-WARNING:root:remove bad pdbs: 1sil000, found chain:
-WARNING:root:remove bad pdbs: 1tbs002, found chain:
-WARNING:root:remove bad pdbs: 2mt2000, found chain:
-INFO:root:get 31877 files.
-INFO:root:get 1469 unique topologies
-INFO:root:859 data is excluded.
-large: 116 | not the same: 599
-parse error: 144 | remaining: 31018
-"""
-
 def is_same_seq(prot: protein.Protein):
     restypes = residue_constants.restypes + ['X']
     decoded_seq = ""
@@ -120,10 +90,6 @@ def do(fname, src_path, fasta_output_dir, pdb_output_dir):
     for prot, chain_id, accept in job_args:
         func1(prot, chain_id, accept)
         func2(prot, chain_id, accept)
-    # logging.info(f"executing func1")
-    # map(func1, job_args)
-    # logging.info(f"executing func2")
-    # map(func2, job_args)
     return (count_accept, count_reject, 0, 1)
 
 
