@@ -165,7 +165,17 @@ pip install git+https://github.com/jvkersch/tmtools.git#egg=tmtools
 
 
 - step 6: do mmseqs2 easy-cluster with 40% sequence identity
+```
+# to install mmseqs2 package
+# If your computer supports SSE4.1 use:
 
+wget https://mmseqs.com/latest/mmseqs-linux-sse41.tar.gz 
+tar xvzf mmseqs-linux-sse41.tar.gz
+export PATH=$(pwd)/mmseqs/bin/:$PATH
+
+# do easy-cluster with 0.4 similarity
+mmseqs easy-cluster <fasta> <output_folder> <tmp_folder> --min-seq-id 0.4 -c 0.8 --cov-mode 1
+```
 ## Copyright notice
 
 ## Citing this work
