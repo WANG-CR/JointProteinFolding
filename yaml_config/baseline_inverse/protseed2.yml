@@ -6,17 +6,13 @@ model:
     usage: replace
   residue_attn:
     enabled: true
-  evoformer_stack:
-    no_blocks: 48
-  structure_module:
-    no_blocks: 48
-    
+
 globals:
-  inv_c_m: 1024
+  inv_c_m: 256
   inv_c_z: 128
   inv_c_m_structure: 384
   inv_c_z_structure: 128
-  c_m: 1024
+  c_m: 384
   c_z: 128
   c_z_structure: 128
   c_m_structure: 384
@@ -26,14 +22,16 @@ globals:
 data:
   data_module:
     data_loaders:
-      num_workers: 10
-      batch_size: 1
+      num_workers: 4
+      batch_size: 2
+  eval:
+    crop: true
 
 optimizer:
-  lr: 0.001
+  lr: 0.0005
 
-# 5000 / 4
+
 scheduler:
   warmup_no_steps: 1000
-  start_decay_after_n_steps: 10000
-  decay_every_n_steps: 1000
+  start_decay_after_n_steps: 5000
+  decay_every_n_steps: 1500

@@ -1,16 +1,17 @@
 #! /bin/bash
 #SBATCH --account=def-bengioy
-#SBATCH --cpus-per-task=10
+#SBATCH --cpus-per-task=40
 #SBATCH --mem=186G
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=4
-#SBATCH --time=12:00:00
+#SBATCH --ntasks-per-node=1
+#SBATCH --gres=gpu:1
+#SBATCH --time=1:00:00
 #SBATCH --exclusive
-#SBATCH --output=/home/chuanrui/scratch/research/ProteinFolding/JointProteinFolding/slurm_log/debug_inverse.out
-#SBATCH --error=/home/chuanrui/scratch/research/ProteinFolding/JointProteinFolding/slurm_log/debug_inverse.err
-#SBATCH --qos=unkillable
+#SBATCH --output=/home/chuanrui/scratch/research/ProteinFolding/JointProteinFolding/slurm_log/debug_transform_nobb.out
+#SBATCH --error=/home/chuanrui/scratch/research/ProteinFolding/JointProteinFolding/slurm_log/debug_transform_nobb.err
+#SBATCH --qos=main
 
-ENV_NAME=cpu1 # your environment name
+ENV_NAME=pf2 # your environment name
 # module load cuda/11.2 # load cuda modules if needed
 source activate $ENV_NAME
 echo env done
@@ -25,7 +26,8 @@ OUTPUT_DIR=$WORK_DIR/output/inverse
 TORCH_DISTRIBUTED_DEBUG=DETAIL srun python train_invfold.py $TRAIN_DIR $OUTPUT_DIR \
     --val_data_dir $VALID_DIR \
     --seed 2024 \
-    --yaml_config_preset yaml_config/baseline_inverse/inverse_large.yml \
+    --gpus 1 \
+    --yaml_config_preset yaml_config/baseline_inverse/debug_inverse.yml \
     --precision 32  --log_every_n_steps 5 \
-    --train_epoch_len 2 \
-    --accelerator cpu \
+    --train_epoch_len 20 \
+

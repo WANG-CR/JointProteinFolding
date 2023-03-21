@@ -6,11 +6,7 @@ model:
     usage: replace
   residue_attn:
     enabled: true
-  evoformer_stack:
-    no_blocks: 48
-  structure_module:
-    no_blocks: 48
-    
+
 globals:
   inv_c_m: 1024
   inv_c_z: 128
@@ -21,7 +17,6 @@ globals:
   c_z_structure: 128
   c_m_structure: 384
   lm_name: esm2_t36_3B_UR50D
-  bb_only: true
 
 data:
   data_module:
