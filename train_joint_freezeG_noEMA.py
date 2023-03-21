@@ -290,18 +290,25 @@ def main(args):
             model_module.f_model.load_state_dict(stat_dict_f)
             logging.info("Successfully loaded model_f weights...")
 
-        if args.resume_from_ckpt_backward is not None:
+        # if args.resume_from_ckpt_backward is not None:
+        #     sd = torch.load(args.resume_from_ckpt_backward, map_location=torch.device('cpu'))
+        #     logging.info("loading state dict for backward model")
+        #     stat_dict_g = {k[len("model."):]:v for k,v in sd["state_dict"].items()}
+        #     stat_dict_m2s = {}
+        #     for k,v in stat_dict_g.items():
+        #         if k in ["evoformer.linear.weight", "evoformer.linear.bias"]:
+        #             stat_dict_m2s[k[len("evoformer.linear."):]] = v
+        #     model_module.g_model.load_state_dict(stat_dict_g, strict=False)
+        #     model_module.g_model.linear_m2s.load_state_dict(stat_dict_m2s)
+        #     model_module.g_model.eval()
+        #     logging.info("Successfully loaded backward model weights...")
+
+        if args.resume_from_ckpt_backward is not None:            
             sd = torch.load(args.resume_from_ckpt_backward, map_location=torch.device('cpu'))
-            logging.info("loading state dict for backward model")
-            stat_dict_g = {k[len("model."):]:v for k,v in sd["state_dict"].items()}
-            stat_dict_m2s = {}
-            for k,v in stat_dict_g.items():
-                if k in ["evoformer.linear.weight", "evoformer.linear.bias"]:
-                    stat_dict_m2s[k[len("evoformer.linear."):]] = v
-            model_module.g_model.load_state_dict(stat_dict_g, strict=False)
-            model_module.g_model.linear_m2s.load_state_dict(stat_dict_m2s)
+            model_module.g_model.load_state_dict(sd["ema"]["params"], strict=True)
             model_module.g_model.eval()
-            logging.info("Successfully loaded backward model weights...")
+            logging.info("Successfully loaded ema model weights...")
+
 
     parallel_data_module = OpenFoldDataModule(
         config=config.data, 
