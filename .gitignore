@@ -150,3 +150,4 @@ prepjob.*
 prolog_slurmd.*
 *unrelaxed.pdb
 *.pdb
+*.fasta
