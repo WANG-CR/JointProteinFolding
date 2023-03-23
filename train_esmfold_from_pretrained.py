@@ -249,14 +249,21 @@ def main(args):
     data_module.setup()
     callbacks = []
     if(args.checkpoint_every_epoch):
+        dirpath = os.path.join(
+            args.output_dir,
+            args.wandb_project,
+            args.wandb_version,
+            "checkpoints",
+        )
         mc = ModelCheckpoint(
             filename="epoch{epoch:02d}-step{step}-val_loss={val/loss:.3f}",
+            dirpath=dirpath,
             auto_insert_metric_name=False,
             monitor="val/loss",
             mode="min",
             every_n_epochs=1,
             save_last=False,
-            save_top_k=10,
+            save_top_k=4,
         )
         callbacks.append(mc)
 
