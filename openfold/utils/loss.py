@@ -343,15 +343,100 @@ def fape_esm_loss(
             out["positions"],
             **{**batch, **config.sidechain},
         )
-        loss = config.backbone.weight * bb_loss
+        loss = config.backbone.weight * bb_loss + 0.0*sc_loss.sum()
 
     else:
+        sc_loss = sidechain_loss(
+            out["sidechain_frames"],
+            out["positions"],
+            **{**batch, **config.sidechain},
+        )
         loss = config.backbone.weight * bb_loss + config.sidechain.weight * sc_loss
     
     # Average over the batch dimension
     loss = torch.mean(loss)
 
     return loss
+
+def dummy_supervised_chi_loss(
+    angles_sin_cos: torch.Tensor,
+    unnormalized_angles_sin_cos: torch.Tensor,
+    aatype: torch.Tensor,
+    seq_mask: torch.Tensor,
+    chi_mask: torch.Tensor,
+    chi_angles_sin_cos: torch.Tensor,
+    chi_weight: float,
+    angle_norm_weight: float,
+    eps=1e-6,
+    **kwargs,
+) -> torch.Tensor:
+    # pred_angles = angles_sin_cos[..., 3:, :] # [*, N, 4, 2]
+    loss = 0.0 * unnormalized_angles_sin_cos[..., 3:, :].sum() + 0.0 * angles_sin_cos[..., 3:, :].sum()
+    return loss
+    # residue_type_one_hot = torch.nn.functional.one_hot(
+    #     aatype,
+    #     residue_constants.restype_num + 1,
+    # )
+    # # [*, N, 4]
+    # chi_pi_periodic = torch.einsum(
+    #     "...ij,jk->ik",
+    #     residue_type_one_hot.type(angles_sin_cos.dtype),
+    #     angles_sin_cos.new_tensor(residue_constants.chi_pi_periodic),
+    # )
+    # # add traj dimension
+    # true_chi = chi_angles_sin_cos[None]
+
+    # shifted_mask = (1 - 2 * chi_pi_periodic).unsqueeze(-1)
+    # true_chi_shifted = shifted_mask * true_chi
+    # sq_chi_error = torch.sum((true_chi - pred_angles) ** 2, dim=-1)
+    # sq_chi_error_shifted = torch.sum(
+    #     (true_chi_shifted - pred_angles) ** 2, dim=-1
+    # )
+    # sq_chi_error = torch.minimum(sq_chi_error, sq_chi_error_shifted)
+    # # The ol' switcheroo, put the traj dimension to the third to the last
+    # sq_chi_error = sq_chi_error.permute(
+    #     *range(len(sq_chi_error.shape))[1:-2], 0, -2, -1
+    # )
+
+    # chi_mask = chi_mask
+    # seq_mask = seq_mask
+    # sq_chi_loss = masked_mean(
+    #     chi_mask[..., None, :, :], sq_chi_error, dim=(-1, -2, -3)
+    # )
+
+    # loss = chi_weight * sq_chi_loss
+
+    # # FP16 friendly L2 norm computation
+    # current_scale = unnormalized_angles_sin_cos.abs().max().detach().item()
+    # max_scale = (torch.finfo(unnormalized_angles_sin_cos.dtype).max * 0.8) ** 0.5
+    # rescale = max(current_scale / max_scale, 1)    
+    # angle_norm = torch.sqrt(
+    #     torch.sum((unnormalized_angles_sin_cos / rescale) ** 2, dim=-1) + eps
+    # ) * rescale
+    # norm_error = torch.abs(angle_norm - 1.0)
+    # norm_error = norm_error.permute(
+    #     *range(len(norm_error.shape))[1:-2], 0, -2, -1
+    # )
+
+    # # angle_norm_loss = masked_mean(
+    # #     seq_mask[..., None, :, None], norm_error * 0.01, dim=(-1, -2, -3)
+    # # ) * 100.0
+    # # FP16-friendly sum. Equivalent to:
+    # # angle_norm_loss = masked_mean(
+    # #     seq_mask[..., None, :, None], norm_error, dim=(-1, -2, -3)
+    # # )
+    # seq_mask = seq_mask[..., None, :, None].expand(*norm_error.shape)
+    # denom = eps + torch.sum(seq_mask, dim=(-1, -2, -3)) # [*, ]
+    # angle_norm_loss = norm_error * seq_mask # [*, 8 * 3, N, 7]
+    # angle_norm_loss = torch.sum(angle_norm_loss, dim=(-1, -2)) # [*, 8 * 3]
+    # angle_norm_loss = angle_norm_loss / denom[..., None] # [*, 8 * 3]
+    # angle_norm_loss = torch.sum(angle_norm_loss, dim=-1)
+
+    # loss = loss + angle_norm_weight * angle_norm_loss
+
+    # # Average over the batch dimension
+    # loss = torch.mean(loss)
+    # return loss
 
 def supervised_chi_loss(
     angles_sin_cos: torch.Tensor,
@@ -1835,6 +1920,54 @@ def seqs_loss(logits, aatype, seq_mask, eps=1e-8, **kwargs):
 
     return loss
 
+def seqs_loss_23token(logits, aatype, seq_mask, eps=1e-8, **kwargs):
+    """
+    Computes sequence type cross-entropy loss.
+
+    Args:
+        logits: [traj, *, N_res, 21] predicted seq type logits
+        aatype: [*, N_res] true seq type
+        seq_mask: [*, N_res] seq mask
+    Returns:
+        seq type loss
+    """
+    # [traj, *, N_res]
+    # print(f"aatype is shape {aatype.shape}")
+    # print(f"seq_mask is shape {seq_mask.shape}")
+    residue_type_one_hot = torch.nn.functional.one_hot(
+        aatype,
+        residue_constants.restype_num + 3,
+    )
+    # print(f"residue_type_one_hot 1 is shape {residue_type_one_hot.shape}")
+    residue_type_one_hot = residue_type_one_hot[None]
+    # print(f"residue_type_one_hot 2 is shape {residue_type_one_hot.shape}")
+    errors = softmax_cross_entropy(
+        logits, residue_type_one_hot
+    )
+    # The ol' switcheroo [*, traj, N_res]
+    errors = errors.permute(
+        *range(len(errors.shape))[1:-1], 0, -1
+    )
+    # seq_mask = [..., -1]
+    seq_mask = seq_mask[..., None, :].expand_as(errors)
+    # seq_mask = seq_mask[..., None, -1].expand_as(errors)
+    # FP16-friendly averaging. Equivalent to:
+    # loss = (
+    #     torch.sum(errors * seq_mask, dim=(-1, -2)) /
+    #     (eps + torch.sum(seq_mask, dim=(-1, -2)))
+    # )
+    loss = errors * seq_mask
+    loss = torch.sum(loss, dim=-1)
+    scale = 0.5
+    denom = eps + torch.sum(scale * seq_mask, dim=(-1, -2))
+    loss = loss / denom[..., None]
+    loss = torch.sum(loss, dim=-1)
+    loss = loss * scale
+
+    loss = torch.mean(loss)
+
+    return loss
+
 
 def compute_drmsd(structure_1, structure_2, mask=None):
     """
@@ -2039,16 +2172,20 @@ class ESMFoldLoss(nn.Module):
             #     logits=out["lm_logits"],
             #     **{**batch, **self.config.seqs},
             # ),
+            "seqs": lambda: seqs_loss_23token(
+                logits=out["lm_logits"],
+                **{**batch, **self.config.seqs},
+            ),
             "tm": lambda: tm_loss(
                 logits=out["ptm_logits"],
                 **{**batch, **out, **self.config.tm},
-            )
+            ),
             ## no supervised chi loss
-            # "supervised_chi": lambda: supervised_chi_loss(
-            #     out["sm"]["angles"], # each step in the structure module
-            #     out["sm"]["unnormalized_angles"],
-            #     **{**batch, **self.config.supervised_chi},
-            # ),
+            "supervised_chi": lambda: supervised_chi_loss(
+                out["angles"], # each step in the structure module
+                out["unnormalized_angles"],
+                **{**batch, **self.config.supervised_chi},
+            ),
             # "experimentally_resolved": lambda: experimentally_resolved_loss(
             #     logits=out["experimentally_resolved_logits"],
             #     **{**batch, **self.config.experimentally_resolved},
