@@ -1,18 +1,18 @@
 #! /bin/bash
-#SBATCH -D /home/Xcwang/scratch/beluga/JointProteinFolding
+#SBATCH -D /panfs/users/Xcwang/JointProteinFolding
 #SBATCH -J folding
 #SBATCH --get-user-env
 #SBATCH --partition=extq
-#SBATCH --nodes=1
-#SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=112
-#SBATCH --time=12:00:00
-#SBATCH --reservation=25643
-#SBATCH --output=/home/Xcwang/scratch/beluga/JointProteinFolding/log/filling.out
-#SBATCH --error=/home/Xcwang/scratch/beluga/JointProteinFolding/log/filling.err
+#SBATCH --nodes=12
+#SBATCH --ntasks-per-node=2
+#SBATCH --cpus-per-task=56
+#SBATCH --time=6:00:00
+#SBATCH --reservation=25527
+#SBATCH --output=log/debug_inverse_1node.out
+#SBATCH --error=log/debug_inverse_1node.err
 
 source ~/scratch/pf_cpu/bin/activate
-# /panfs/users/Xcwang/JointProteinFolding
+
 # 2. set up path
 # you can also change the dataset to miniprotein dataset
 WORK_DIR=/home/Xcwang/scratch/JointProteinFolding #current path
@@ -36,19 +36,23 @@ export OMP_NUM_THREADS=100
 TORCH_DISTRIBUTED_DEBUG=DETAIL srun python train_invfold.py $TRAIN_DIR $OUTPUT_DIR \
     --val_data_dir $VALID_DIR \
     --seed 2024 \
-    --yaml_config_preset yaml_config/baseline_inverse/inverse.yml \
+    --yaml_config_preset yaml_config/baseline_inverse/inverse_12node.yml \
     --precision 32  --log_every_n_steps 5 \
-    --train_epoch_len 3600 \
+    --train_epoch_len 360 \
     --accelerator cpu \
-    --devices 1 \
+    --devices 24 \
     --num_nodes 1 \
+    --wandb true \
+    --wandb_entity chuanrui \
+    --wandb_version debug_inverse_8+8_epochlen360_24devices \
+    --wandb_project inverse_folding \
+
+    # --train_epoch_len 7680 \
+    # --accelerator cpu \
+    # --devices 48 \
+    # --num_nodes 1 \
     # --wandb true \
     # --wandb_entity chuanrui \
-    # --wandb_version inverse_8+8_epochlen3600_72devices_run2 \
-    # --wandb_project inverse_folding \
+    # --wandb_version cath_baseline_bs16_epochlen7680_step165_P5 \
+    # --wandb_project debug_endeavour \
     # --resume_from_ckpt /home/Xcwang/scratch/JointProteinFolding/output_cath/debug_endeavour/baseline_8layer_3B_largebs-cath_baseline_bs16_epochlen7680_step165_P5/checkpoints/epoch216-step2169-val_loss=2.236.ckpt \
-        # --train_epoch_len 7680 \
-
-
-# tried 144 devices => memory not enough
-# -> try 72 devices

@@ -1,18 +1,18 @@
 #! /bin/bash
-#SBATCH -D /home/Xcwang/scratch/beluga/JointProteinFolding
+#SBATCH -D /panfs/users/Xcwang/JointProteinFolding
 #SBATCH -J folding
 #SBATCH --get-user-env
 #SBATCH --partition=extq
-#SBATCH --nodes=1
-#SBATCH --ntasks-per-node=1
+#SBATCH --nodes=36
+#SBATCH --ntasks-per-node=2
 #SBATCH --cpus-per-task=112
-#SBATCH --time=12:00:00
-#SBATCH --reservation=25643
-#SBATCH --output=/home/Xcwang/scratch/beluga/JointProteinFolding/log/filling.out
-#SBATCH --error=/home/Xcwang/scratch/beluga/JointProteinFolding/log/filling.err
+#SBATCH --time=48:00:00
+#SBATCH --reservation=25575
+#SBATCH --output=log/hunchichang.out
+#SBATCH --error=log/hunchichang.err
 
 source ~/scratch/pf_cpu/bin/activate
-# /panfs/users/Xcwang/JointProteinFolding
+
 # 2. set up path
 # you can also change the dataset to miniprotein dataset
 WORK_DIR=/home/Xcwang/scratch/JointProteinFolding #current path
@@ -40,11 +40,11 @@ TORCH_DISTRIBUTED_DEBUG=DETAIL srun python train_invfold.py $TRAIN_DIR $OUTPUT_D
     --precision 32  --log_every_n_steps 5 \
     --train_epoch_len 3600 \
     --accelerator cpu \
-    --devices 1 \
+    --devices 36 \
     --num_nodes 1 \
     # --wandb true \
     # --wandb_entity chuanrui \
-    # --wandb_version inverse_8+8_epochlen3600_72devices_run2 \
+    # --wandb_version inverse_8+hunchichang \
     # --wandb_project inverse_folding \
     # --resume_from_ckpt /home/Xcwang/scratch/JointProteinFolding/output_cath/debug_endeavour/baseline_8layer_3B_largebs-cath_baseline_bs16_epochlen7680_step165_P5/checkpoints/epoch216-step2169-val_loss=2.236.ckpt \
         # --train_epoch_len 7680 \
