@@ -454,6 +454,108 @@ def supervised_chi_loss(
     loss = torch.mean(loss)
     return loss
 
+def supervised_chi_loss_only_psi(
+    angles_sin_cos: torch.Tensor,
+    unnormalized_angles_sin_cos: torch.Tensor,
+    aatype: torch.Tensor,
+    seq_mask: torch.Tensor,
+    chi_mask: torch.Tensor,
+    chi_angles_sin_cos: torch.Tensor,
+    chi_weight: float,
+    angle_norm_weight: float,
+    eps=1e-6,
+    **kwargs,
+) -> torch.Tensor:
+    """
+        Implements Algorithm 27 (torsionAngleLoss)
+
+        Args:
+            angles_sin_cos:
+                [*, N, 7, 2] predicted angles
+            unnormalized_angles_sin_cos:
+                The same angles, but unnormalized
+            aatype:
+                [*, N] residue indices
+            seq_mask:
+                [*, N] sequence mask
+            chi_mask:
+                [*, N, 4] angle mask
+            chi_angles_sin_cos:
+                [*, N, 4, 2] ground truth angles
+            chi_weight:
+                Weight for the angle component of the loss
+            angle_norm_weight:
+                Weight for the normalization component of the loss
+        Returns:
+            [*] loss tensor
+    """
+
+    pred_angles = angles_sin_cos[..., 3:, :] # [*, N, 4, 2]
+    residue_type_one_hot = torch.nn.functional.one_hot(
+        aatype,
+        residue_constants.restype_num + 1,
+    )
+    # [*, N, 4]
+    chi_pi_periodic = torch.einsum(
+        "...ij,jk->ik",
+        residue_type_one_hot.type(angles_sin_cos.dtype),
+        angles_sin_cos.new_tensor(residue_constants.chi_pi_periodic),
+    )
+    # add traj dimension
+    true_chi = chi_angles_sin_cos[None]
+
+    shifted_mask = (1 - 2 * chi_pi_periodic).unsqueeze(-1)
+    true_chi_shifted = shifted_mask * true_chi
+    sq_chi_error = torch.sum((true_chi - pred_angles) ** 2, dim=-1)
+    sq_chi_error_shifted = torch.sum(
+        (true_chi_shifted - pred_angles) ** 2, dim=-1
+    )
+    sq_chi_error = torch.minimum(sq_chi_error, sq_chi_error_shifted)
+    # The ol' switcheroo, put the traj dimension to the third to the last
+    sq_chi_error = sq_chi_error.permute(
+        *range(len(sq_chi_error.shape))[1:-2], 0, -2, -1
+    )
+
+    chi_mask = chi_mask
+    seq_mask = seq_mask
+    sq_chi_loss = masked_mean(
+        chi_mask[..., None, :, :], sq_chi_error, dim=(-1, -2, -3)
+    )
+
+    loss = chi_weight * sq_chi_loss
+
+    # FP16 friendly L2 norm computation
+    current_scale = unnormalized_angles_sin_cos.abs().max().detach().item()
+    max_scale = (torch.finfo(unnormalized_angles_sin_cos.dtype).max * 0.8) ** 0.5
+    rescale = max(current_scale / max_scale, 1)    
+    angle_norm = torch.sqrt(
+        torch.sum((unnormalized_angles_sin_cos / rescale) ** 2, dim=-1) + eps
+    ) * rescale
+    norm_error = torch.abs(angle_norm - 1.0)
+    norm_error = norm_error.permute(
+        *range(len(norm_error.shape))[1:-2], 0, -2, -1
+    )
+
+    # angle_norm_loss = masked_mean(
+    #     seq_mask[..., None, :, None], norm_error * 0.01, dim=(-1, -2, -3)
+    # ) * 100.0
+    # FP16-friendly sum. Equivalent to:
+    # angle_norm_loss = masked_mean(
+    #     seq_mask[..., None, :, None], norm_error, dim=(-1, -2, -3)
+    # )
+    seq_mask = seq_mask[..., None, :, None].expand(*norm_error.shape)
+    denom = eps + torch.sum(seq_mask, dim=(-1, -2, -3)) # [*, ]
+    angle_norm_loss = norm_error * seq_mask # [*, 8 * 3, N, 7]
+    angle_norm_loss = torch.sum(angle_norm_loss, dim=(-1, -2)) # [*, 8 * 3]
+    angle_norm_loss = angle_norm_loss / denom[..., None] # [*, 8 * 3]
+    angle_norm_loss = torch.sum(angle_norm_loss, dim=-1)
+
+    loss = loss + angle_norm_weight * angle_norm_loss
+
+    # Average over the batch dimension
+    loss = torch.mean(loss)
+    return loss
+
 
 def compute_plddt(logits: torch.Tensor) -> torch.Tensor:
     num_bins = logits.shape[-1]
@@ -1982,10 +2084,10 @@ class ESMFoldLoss(nn.Module):
 
         # Scale the loss by the square root of the minimum of the crop size and
         # the (average) sequence length. See subsection 1.9.
-        # seq_len = torch.mean(batch["seq_length"].float())
-        # crop_len = batch["aatype"].shape[-1]
-        # cum_loss = cum_loss * torch.sqrt(min(seq_len, crop_len))
-
+        seq_len = torch.mean(batch["seq_length"].float())
+        crop_len = batch["aatype"].shape[-1]
+        cum_loss = cum_loss * torch.sqrt(min(seq_len, crop_len))
+        
         losses["loss"] = cum_loss.detach().clone()
 
         if not _return_breakdown:

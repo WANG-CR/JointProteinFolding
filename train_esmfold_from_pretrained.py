@@ -57,18 +57,21 @@ class OpenFoldWrapper(pl.LightningModule):
     def _log(self, loss_breakdown, batch, outputs, train=True):
         phase = "train" if train else "val"
         for loss_name, indiv_loss in loss_breakdown.items():
-            self.log(
-                f"{phase}/{loss_name}", 
-                indiv_loss, 
-                on_step=train, on_epoch=(not train), logger=True,
-            )
-
-            if(train):
+            if loss_name not in ["seqs", "supervised_chi"]:
                 self.log(
-                    f"{phase}/{loss_name}_epoch",
-                    indiv_loss,
-                    on_step=False, on_epoch=True, logger=True,
+                    f"{phase}/{loss_name}", 
+                    indiv_loss, 
+                    on_step=train, on_epoch=(not train), logger=True,
                 )
+
+        for loss_name, indiv_loss in loss_breakdown.items():
+            if loss_name not in ["seqs", "supervised_chi"]:
+                if(train):
+                    self.log(
+                        f"{phase}/{loss_name}_epoch",
+                        indiv_loss,
+                        on_step=False, on_epoch=True, logger=True,
+                    )
 
         with torch.no_grad():
             other_metrics = self._compute_validation_metrics(
