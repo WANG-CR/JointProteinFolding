@@ -4,6 +4,7 @@ logging.basicConfig(level=logging.INFO)
 import os
 
 import torch
+import intel_extension_for_pytorch as ipex
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks.lr_monitor import LearningRateMonitor
 from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
@@ -41,6 +42,7 @@ class OpenFoldWrapper(pl.LightningModule):
         self.model = ESMFold(esmfold_config=cfg, using_fair=True, cpu=True)
         self.model.load_state_dict(model_state, strict=False)
         self.loss = ESMFoldLoss(config.loss)
+
         # self.ema = ExponentialMovingAverage(
         #     model=self.model, decay=config.ema.decay
         # )
@@ -197,12 +199,13 @@ class OpenFoldWrapper(pl.LightningModule):
             eps=optim_config.eps,
             weight_decay=1e-5,
         )
+
+        self.model, optimizer = ipex.optimize(self.model, optimizer=optimizer) 
         lr_scheduler = AlphaFoldLRScheduler(
             optimizer,
             max_lr=optim_config.lr,
             **scheduler_config,
         )
-
         return {
             "optimizer": optimizer,
             "lr_scheduler": {
@@ -247,8 +250,6 @@ def main(args):
 
     data_module.prepare_data()
     data_module.setup()
-
-    
     callbacks = []
     if(args.checkpoint_every_epoch and args.wandb):
         dirpath = os.path.join(
@@ -523,9 +524,6 @@ if __name__ == "__main__":
             "Either --config_preset or --yaml_config_preset should be specified."
         )
 
-    if(str(args.precision) == "16" and args.deepspeed_config_path is not None):
-        raise ValueError("DeepSpeed and FP16 training are not compatible")
-        
     if(args.yaml_config_preset is not None):
         if not os.path.exists(args.yaml_config_preset):
             raise FileNotFoundError(f"{os.path.abspath(args.yaml_config_preset)}")
