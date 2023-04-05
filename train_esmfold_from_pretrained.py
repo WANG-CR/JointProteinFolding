@@ -247,6 +247,8 @@ def main(args):
 
     data_module.prepare_data()
     data_module.setup()
+
+    
     callbacks = []
     if(args.checkpoint_every_epoch):
         dirpath = os.path.join(
@@ -521,6 +523,9 @@ if __name__ == "__main__":
             "Either --config_preset or --yaml_config_preset should be specified."
         )
 
+    if(str(args.precision) == "16" and args.deepspeed_config_path is not None):
+        raise ValueError("DeepSpeed and FP16 training are not compatible")
+        
     if(args.yaml_config_preset is not None):
         if not os.path.exists(args.yaml_config_preset):
             raise FileNotFoundError(f"{os.path.abspath(args.yaml_config_preset)}")

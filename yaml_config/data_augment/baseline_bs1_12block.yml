@@ -1,0 +1,55 @@
+model:
+  evoformer_stack:
+    no_blocks: 12
+  structure_module:
+    no_blocks: 12
+  inverse_evoformer_stack:
+    no_blocks: 8
+  residue_emb:
+    enabled: true
+    usage: replace
+  residue_attn:
+    enabled: true
+
+globals:
+  inv_c_m: 1024
+  inv_c_z: 128
+  inv_c_m_structure: 384
+  inv_c_z_structure: 128
+  c_m: 1024
+  c_z: 128
+  c_z_structure: 128
+  c_m_structure: 384
+  lm_name: esm2_t36_3B_UR50D
+  # bb_only: true
+
+loss:
+  tm:
+    enabled: true
+    weight: 0.0
+  distogram: 
+    weight: 0.0
+  supervised_chi:
+    weight: 0.0
+  fape: 
+    sidechain:
+      weight: 0.0
+  seqs:
+    weight: 0.0
+
+data:
+  data_module:
+    data_loaders:
+      num_workers: 8
+      batch_size: 1
+  # should we enlarge eval crop size?
+  # should we enlarge train crop size? 
+
+optimizer:
+  lr: 0.0005
+
+
+scheduler:
+  warmup_no_steps: 1250
+  start_decay_after_n_steps: 12500
+  decay_every_n_steps: 1250
